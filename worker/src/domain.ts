@@ -1,6 +1,6 @@
 /** 純粋関数・定数（IO なし） */
 
-/** JMA nowc の basetime/validtime（YYYYMMDDHHmmss, 日本時間想定）→ UTC ISO 8601 */
+/** JMA nowc の basetime/validtime（YYYYMMDDHHmmss）を UTC として ISO 8601 化 */
 export function jmaNowcTimeToUtcIso(jma: string): string {
   if (!/^\d{14}$/.test(jma)) {
     throw new Error(`invalid_jma_time:${jma}`);
@@ -11,7 +11,7 @@ export function jmaNowcTimeToUtcIso(jma: string): string {
   const h = jma.slice(8, 10);
   const mi = jma.slice(10, 12);
   const s = jma.slice(12, 14);
-  const ms = Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${s}+09:00`);
+  const ms = Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`);
   if (Number.isNaN(ms)) {
     throw new Error(`invalid_jma_time_parse:${jma}`);
   }
