@@ -1,11 +1,12 @@
 import { buildRadarMetaV1, fakeMeta } from "./catalog";
 import type { Env } from "./types";
 import {
-  fetchJmaTargetTimesBody,
+  fetchJmaTargetTimesN1Body,
+  fetchJmaTargetTimesN2Body,
   fetchUpstreamTile,
   parseTargetTimesBody,
 } from "./provider";
-import { JAPAN_COVERAGE_BBOX, tileIntersectsCoverageBbox, type TargetTimeEntry } from "./domain";
+import { JAPAN_COVERAGE_BBOX, mergeTargetTimeEntries, tileIntersectsCoverageBbox, type TargetTimeEntry } from "./domain";
 
 const KV_SNAPSHOT = "radar:nowc:snapshot_v1";
 /** 後方互換: 旧 2 キー構成からの移行用 */
@@ -102,22 +103,56 @@ function zoomBounds(env: Env): { min: number; max: number } {
   return { min, max };
 }
 
-async function writeSnapshot(env: Env, body: string, fetchedAtMs: number): Promise<void> {
-  const payload = JSON.stringify({ v: 1, body, fetchedAtMs });
+async function writeSnapshotV2(
+  env: Env,
+  input: { n1Body: string; n2Body: string; fetchedAtMs: number; n2FetchOk: boolean },
+): Promise<void> {
+  const payload = JSON.stringify({
+    v: 2,
+    n1Body: input.n1Body,
+    n2Body: input.n2Body,
+    fetchedAtMs: input.fetchedAtMs,
+    n2FetchOk: input.n2FetchOk,
+  });
   await env.RADAR_KV.put(KV_SNAPSHOT, payload);
 }
 
 async function readSnapshot(env: Env): Promise<{
   entries: TargetTimeEntry[];
   fetchedAtMs: number;
+  n2FetchOk: boolean;
 } | null> {
   const snap = await env.RADAR_KV.get(KV_SNAPSHOT);
   if (snap) {
     try {
-      const o = JSON.parse(snap) as { v?: number; body?: string; fetchedAtMs?: number };
+      const o = JSON.parse(snap) as Record<string, unknown>;
+
+      if (
+        o.v === 2 &&
+        typeof o.n1Body === "string" &&
+        typeof o.fetchedAtMs === "number"
+      ) {
+        const n1 = parseTargetTimesBody(o.n1Body);
+        let n2: TargetTimeEntry[] = [];
+        const n2FetchOkStored = o.n2FetchOk === true;
+        if (n2FetchOkStored && typeof o.n2Body === "string" && o.n2Body.length > 0) {
+          try {
+            n2 = parseTargetTimesBody(o.n2Body);
+          } catch {
+            /* N2 本文が破損している場合は観測系のみ */
+          }
+        }
+        const entries = mergeTargetTimeEntries(n1, n2);
+        return {
+          entries,
+          fetchedAtMs: o.fetchedAtMs,
+          n2FetchOk: n2FetchOkStored,
+        };
+      }
+
       if (o.v === 1 && typeof o.body === "string" && typeof o.fetchedAtMs === "number") {
         const entries = parseTargetTimesBody(o.body);
-        return { entries, fetchedAtMs: o.fetchedAtMs };
+        return { entries, fetchedAtMs: o.fetchedAtMs, n2FetchOk: false };
       }
     } catch {
       return null;
@@ -133,23 +168,72 @@ async function readSnapshot(env: Env): Promise<{
   if (!Number.isFinite(fetchedAtMs)) return null;
   try {
     const entries = parseTargetTimesBody(legacyBody);
-    await writeSnapshot(env, legacyBody, fetchedAtMs);
-    return { entries, fetchedAtMs };
+    await writeSnapshotV2(env, {
+      n1Body: legacyBody,
+      n2Body: "",
+      fetchedAtMs,
+      n2FetchOk: false,
+    });
+    return { entries, fetchedAtMs, n2FetchOk: false };
   } catch {
     return null;
   }
 }
 
 export async function ingestNowc(env: Env, correlationId: string): Promise<void> {
-  const body = await fetchJmaTargetTimesBody();
-  parseTargetTimesBody(body);
+  const settled = await Promise.allSettled([
+    fetchJmaTargetTimesN1Body(),
+    fetchJmaTargetTimesN2Body(),
+  ]);
+  const r1 = settled[0]!;
+  const r2 = settled[1]!;
+
+  if (r1.status !== "fulfilled") {
+    throw new Error(r1.status === "rejected" ? String(r1.reason) : "n1_missing");
+  }
+  const n1Body = r1.value;
+  parseTargetTimesBody(n1Body);
+
+  let n2Body = "";
+  let n2FetchOk = false;
+  if (r2.status === "fulfilled") {
+    try {
+      parseTargetTimesBody(r2.value);
+      n2Body = r2.value;
+      n2FetchOk = true;
+    } catch (e) {
+      console.log(
+        JSON.stringify({
+          outcome: "n2_parse_error",
+          correlation_id: correlationId,
+          message: String(e),
+        }),
+      );
+    }
+  } else {
+    console.log(
+      JSON.stringify({
+        outcome: "n2_fetch_failed",
+        correlation_id: correlationId,
+        message: r2.status === "rejected" ? String(r2.reason) : "",
+      }),
+    );
+  }
+
   const now = Date.now();
-  await writeSnapshot(env, body, now);
+  await writeSnapshotV2(env, { n1Body, n2Body, fetchedAtMs: now, n2FetchOk });
+
+  const n2Entries = n2FetchOk && n2Body.length > 0 ? parseTargetTimesBody(n2Body) : [];
+  const merged = mergeTargetTimeEntries(parseTargetTimesBody(n1Body), n2Entries);
+
   console.log(
     JSON.stringify({
       outcome: "ingest_ok",
       correlation_id: correlationId,
       fetched_at_ms: now,
+      n1_ok: true,
+      n2_ok: n2FetchOk,
+      merged_frame_count: merged.length,
     }),
   );
 }
@@ -240,6 +324,7 @@ export default {
           environment: env.ENVIRONMENT,
           fake_provider: isFakeEnabled(env),
           last_ingest_ms: snap ? snap.fetchedAtMs : null,
+          n2_ok: snap ? snap.n2FetchOk : null,
         },
         { cacheControl: "no-store" },
       );
@@ -310,7 +395,11 @@ export default {
       const zb = zoomBounds(env);
 
       if (isFakeEnabled(env)) {
-        if (frameId === "fake_frame") {
+        if (
+          frameId === "fake_frame" ||
+          frameId === "fake_analysis" ||
+          frameId === "fake_forecast"
+        ) {
           return new Response(TRANSPARENT_PNG, {
             headers: {
               "Content-Type": "image/png",

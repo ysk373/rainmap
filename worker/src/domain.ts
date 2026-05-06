@@ -56,6 +56,33 @@ export function frameIdForEntry(e: TargetTimeEntry): string {
   return `${e.basetime}_${e.validtime}`;
 }
 
+/** HRPNs コマの区分（メタ JSON の `frames[].role` に対応） */
+export type FrameRole = "analysis" | "forecast";
+
+/**
+ * basetime と validtime が同一なら解析・実況寄り、異なれば短期予報コマ（N2 由来が典型）。
+ */
+export function frameRoleFromEntry(e: TargetTimeEntry): FrameRole {
+  return e.basetime === e.validtime ? "analysis" : "forecast";
+}
+
+/**
+ * N1 と N2 を統合する。同一 (basetime, validtime) が両方にあれば **N1 を優先**する。
+ */
+export function mergeTargetTimeEntries(
+  n1: TargetTimeEntry[],
+  n2: TargetTimeEntry[],
+): TargetTimeEntry[] {
+  const map = new Map<string, TargetTimeEntry>();
+  for (const e of n2) {
+    map.set(frameIdForEntry(e), e);
+  }
+  for (const e of n1) {
+    map.set(frameIdForEntry(e), e);
+  }
+  return [...map.values()];
+}
+
 /**
  * 「これから雨が降りそうか」向けに初期表示するフレームを選ぶ。
  * 時系列は昇順（古い→新しい）、各 time は UTC の ISO 8601。

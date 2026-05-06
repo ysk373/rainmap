@@ -2,6 +2,7 @@ import {
   JAPAN_COVERAGE_BBOX,
   defaultFrameIndexForUpcoming,
   frameIdForEntry,
+  frameRoleFromEntry,
   jmaNowcTimeToUtcIso,
   type TargetTimeEntry,
 } from "./domain";
@@ -24,16 +25,28 @@ export function buildRadarMetaV1(input: {
     .filter((e) => !e.elements || e.elements.includes("hrpns"))
     .map((e) => {
       const time = jmaNowcTimeToUtcIso(e.validtime);
+      const role = frameRoleFromEntry(e);
       return {
         id: frameIdForEntry(e),
         time,
         zoom_range: { min: zoomMin, max: zoomMax },
+        role,
       };
     })
     .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
 
-  const latest =
-    framesAsc.length === 0 ? null : framesAsc[framesAsc.length - 1]!.time;
+  /** 観測・解析寄り（analysis）のうち最も新しい valid。メタの latest_* と一致させる。 */
+  let latestAnalysis: string | null = null;
+  for (const f of framesAsc) {
+    if (f.role === "analysis") {
+      if (!latestAnalysis || f.time > latestAnalysis) latestAnalysis = f.time;
+    }
+  }
+
+  const latest_available_time = latestAnalysis;
+  const latest_analysis_time = latestAnalysis;
+
+  const forecast_available = framesAsc.some((f) => f.role === "forecast");
 
   const upcomingIdx = defaultFrameIndexForUpcoming(
     framesAsc.map((f) => f.time),
@@ -48,7 +61,9 @@ export function buildRadarMetaV1(input: {
     contract_version: "1",
     crs: "EPSG:3857",
     tile_url_template,
-    latest_available_time: latest,
+    latest_available_time,
+    latest_analysis_time,
+    forecast_available,
     default_frame_id,
     stale,
     coverage: {
@@ -57,17 +72,21 @@ export function buildRadarMetaV1(input: {
     },
     frames: framesAsc,
     time_estimated: false,
-    provider_attribution: "出典：気象庁（防災気象情報・ナウキャスト等）。利用条件は公式サイトを確認してください。",
+    provider_attribution:
+      "出典：気象庁（防災気象情報・ナウキャスト等）。利用条件は公式サイトを確認してください。",
   };
 }
 
 export function fakeMeta(apiOrigin: string): RadarMetaV1 {
-  const t = "2020-01-01T00:00:00Z";
+  const tAnalysis = "2020-01-01T00:00:00Z";
+  const tForecast = "2020-01-01T01:00:00Z";
   return {
     contract_version: "1",
     crs: "EPSG:3857",
     tile_url_template: `${apiOrigin}/tiles/nowc/{frame_id}/{z}/{x}/{y}.png`,
-    latest_available_time: t,
+    latest_available_time: tAnalysis,
+    latest_analysis_time: tAnalysis,
+    forecast_available: true,
     stale: true,
     coverage: {
       bbox: JAPAN_COVERAGE_BBOX,
@@ -75,12 +94,19 @@ export function fakeMeta(apiOrigin: string): RadarMetaV1 {
     },
     frames: [
       {
-        id: "fake_frame",
-        time: t,
+        id: "fake_analysis",
+        time: tAnalysis,
         zoom_range: { min: 4, max: 10 },
+        role: "analysis",
+      },
+      {
+        id: "fake_forecast",
+        time: tForecast,
+        zoom_range: { min: 4, max: 10 },
+        role: "forecast",
       },
     ],
-    default_frame_id: "fake_frame",
+    default_frame_id: "fake_analysis",
     time_estimated: true,
     provider_attribution: "FAKE PROVIDER（開発・テスト用）",
   };

@@ -14,7 +14,7 @@
 - **API**: `worker/` を Wrangler で Cloudflare にデプロイ
 - **契約**: `GET /api/v1/radar/meta` が [design/02-system-architecture.md](design/02-system-architecture.md) の v1 メタデータを返す
 - **タイル**: `tile_url_template` は **API オリジン上の絶対 URL**（`API_PUBLIC_ORIGIN` 推奨）
-- **上流**: 気象庁防災気象 `targetTimes_N1.json` と HRPNs タイル（利用条件は公式で確認）
+- **上流**: 気象庁防災気象 `targetTimes_N1.json` / `targetTimes_N2.json` と HRPNs タイル（利用条件は公式で確認）
 - **本番でフェイク禁止**: `ENVIRONMENT=production` かつ `FAKE_PROVIDER=true` のとき **503**（[design/01-requirements-and-scope.md](design/01-requirements-and-scope.md)）
 
 ## ローカル開発
@@ -95,5 +95,6 @@ VITE_API_BASE_URL=https://<your-worker-host> VITE_BASE_PATH=/<repo>/ npm run bui
 
 ## 変更履歴（実装）
 
+- **0.2.0**: N1＋N2 イングエスト、KV `v:2`、メタに `forecast_available` / `frames[].role`、フレームラベルに観測・予報表示
 - **0.1.1**: レビュー反映（KV 単一キー、本番のメタウォームアップ方針、タイル 404 JSON、coverage 判定、フェッチ上限・タイムアウト、フロントのメタ再取得・`setUrl`・現地時刻表示など）
 - **0.1.0**: MVP 実装（JMA nowc / メタ v1 / タイルプロキシ / Cron+KV / Leaflet UI）

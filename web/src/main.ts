@@ -7,10 +7,17 @@ type RadarMeta = {
   crs: string;
   tile_url_template: string;
   latest_available_time: string | null;
+  latest_analysis_time?: string | null;
+  forecast_available?: boolean;
   default_frame_id?: string | null;
   stale: boolean;
   coverage: { bbox: [number, number, number, number]; tile_matrix: string };
-  frames: Array<{ id: string; time: string; zoom_range: { min: number; max: number } }>;
+  frames: Array<{
+    id: string;
+    time: string;
+    zoom_range: { min: number; max: number };
+    role?: "analysis" | "forecast";
+  }>;
   provider_attribution?: string;
 };
 
@@ -94,7 +101,7 @@ function main(): void {
   let frameIndex = 0;
   let playTimer: number | null = null;
   let metaPollTimer: number | null = null;
-  const maxFrames = 24;
+  const maxFrames = 56;
   const playMs = 900;
 
   function stopPlay(): void {
@@ -124,7 +131,10 @@ function main(): void {
       radarLayer.setOpacity(0.75);
     }
 
-    frameLabel.textContent = `${frameIndex + 1}/${frames.length} · ${formatLocalTime(frame.time)}`;
+    const role = frame.role;
+    const tag =
+      role === "forecast" ? "予報" : role === "analysis" ? "観測" : "";
+    frameLabel.textContent = `${frameIndex + 1}/${frames.length} · ${tag ? `${tag} · ` : ""}${formatLocalTime(frame.time)}`;
   }
 
   function togglePlay(): void {
@@ -189,9 +199,13 @@ function main(): void {
       frameIndex = Math.min(frameIndex, frames.length - 1);
     }
 
-    statusEl.textContent = meta.stale
+    let statusText = meta.stale
       ? "データが古い可能性があります（stale）。"
       : "接続済み";
+    if (!meta.stale && meta.forecast_available === false) {
+      statusText += " 短期予報コマはありません。";
+    }
+    statusEl.textContent = statusText;
     statusEl.classList.toggle("stale", meta.stale);
 
     attrEl.textContent = [

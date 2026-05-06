@@ -12,7 +12,13 @@ export type RadarMetaV1 = {
     id: string;
     time: string;
     zoom_range: { min: number; max: number };
+    /** 省略時は旧クライアント互換（不明） */
+    role?: "analysis" | "forecast";
   }>;
+  /** メタに短期予報コマ（forecast）が含まれるか */
+  forecast_available?: boolean;
+  /** 観測・解析寄りコマのうち最も新しい valid（UTC ISO）。`latest_available_time` と同値を推奨 */
+  latest_analysis_time?: string | null;
   /** 主用途（直近の降水見通し）向けに推奨するフレーム。無い場合はクライアントが従来どおり latest を使う。 */
   default_frame_id: string | null;
   time_estimated?: boolean;
