@@ -19,16 +19,19 @@ if (!apiBase) {
 }
 
 const metaRefreshMs = 120_000;
+const DEFAULT_LAT = 35.4437;
+const DEFAULT_LON = 139.638;
+const DEFAULT_ZOOM = 10;
 
 function parseQuery(): { lat: number; lon: number; z: number } {
   const p = new URLSearchParams(window.location.search);
-  const lat = Number.parseFloat(p.get("lat") || "35.68");
-  const lon = Number.parseFloat(p.get("lon") ?? p.get("lng") ?? "139.76");
-  const z = Number.parseInt(p.get("z") || "6", 10);
+  const lat = Number.parseFloat(p.get("lat") || String(DEFAULT_LAT));
+  const lon = Number.parseFloat(p.get("lon") ?? p.get("lng") ?? String(DEFAULT_LON));
+  const z = Number.parseInt(p.get("z") || String(DEFAULT_ZOOM), 10);
   return {
-    lat: Number.isFinite(lat) ? lat : 35.68,
-    lon: Number.isFinite(lon) ? lon : 139.76,
-    z: Number.isFinite(z) ? z : 6,
+    lat: Number.isFinite(lat) ? lat : DEFAULT_LAT,
+    lon: Number.isFinite(lon) ? lon : DEFAULT_LON,
+    z: Number.isFinite(z) ? z : DEFAULT_ZOOM,
   };
 }
 
