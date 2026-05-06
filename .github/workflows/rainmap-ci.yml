@@ -3,11 +3,13 @@ name: rainmap CI
 on:
   push:
     paths:
-      - "rainmap/**"
+      - "worker/**"
+      - "web/**"
       - ".github/workflows/rainmap-ci.yml"
   pull_request:
     paths:
-      - "rainmap/**"
+      - "worker/**"
+      - "web/**"
       - ".github/workflows/rainmap-ci.yml"
 
 jobs:
@@ -15,14 +17,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: rainmap/worker
+        working-directory: worker
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: rainmap/worker/package-lock.json
+          cache-dependency-path: worker/package-lock.json
       - name: Install
         run: npm install
       - name: Typecheck
@@ -32,14 +34,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: rainmap/web
+        working-directory: web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: rainmap/web/package-lock.json
+          cache-dependency-path: web/package-lock.json
       - name: Install
         run: npm install
       - name: Build

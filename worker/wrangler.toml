@@ -11,17 +11,17 @@ compatibility_date = "2024-11-01"
 crons = ["*/5 * * * *"]
 
 [vars]
-ENVIRONMENT = "development"
+ENVIRONMENT = "production"
 # カンマ区切り。GitHub Pages の実 URL を列挙（末尾スラッシュなしでも可）
-ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+ALLOWED_ORIGINS = "https://ysk373.github.io"
 FAKE_PROVIDER = "false"
 ZOOM_MIN = "4"
 ZOOM_MAX = "10"
 # 本番では Workers のカスタムドメイン等の確定オリジンを設定推奨
-# API_PUBLIC_ORIGIN = "https://rainmap-api.example.com"
+API_PUBLIC_ORIGIN = "https://rainmap-api.ysk373-rainmap.workers.dev"
 
 # 初回: wrangler kv:namespace create RADAR_KV の id を貼る
 [[kv_namespaces]]
 binding = "RADAR_KV"
-id = "00000000000000000000000000000000"
-preview_id = "00000000000000000000000000000000"
+id = "39b9b1dfa4b74634a95187f32ff87f5b"
+preview_id = "2344873c779343fcb0bf01b769bb0312"

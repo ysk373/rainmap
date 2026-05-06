@@ -22,7 +22,7 @@
 ### 1) Worker
 
 ```bash
-cd rainmap/worker
+cd worker
 npm install
 # wrangler.toml の [[kv_namespaces]] id を実 KV に差し替え（下記「初回セットアップ」）
 npx wrangler dev
@@ -44,7 +44,7 @@ FAKE_PROVIDER=true npx wrangler dev
 ### 2) Web
 
 ```bash
-cd rainmap/web
+cd web
 cp .env.example .env
 # .env の VITE_API_BASE_URL を Worker のオリジンに合わせる
 npm install
@@ -58,15 +58,15 @@ npm run dev
 リポジトリが `https://<org>.github.io/<repo>/` のとき、`VITE_BASE_PATH` は通常 `/<repo>/` です。
 
 ```bash
-cd rainmap/web
+cd web
 VITE_API_BASE_URL=https://<your-worker-host> VITE_BASE_PATH=/<repo>/ npm run build
 ```
 
-`dist/` を Pages の公開ルートにアップロードします（Actions 例は `.github/workflows/rainmap-ci.yml`）。
+`dist/` を Pages の公開ルートにアップロードします（Actions 例は `.github/workflows/deploy-pages.yml`）。
 
 ## 初回セットアップ（Cloudflare）
 
-1. `cd rainmap/worker && npx wrangler kv:namespace create RADAR_KV`
+1. `cd worker && npx wrangler kv namespace create RADAR_KV`
 2. 表示された **id** を `wrangler.toml` の `[[kv_namespaces]].id` に貼る（`preview_id` はローカル用に別作成可）
 3. **本番**では `wrangler.toml` の `[vars]` を上書きするか、ダッシュボードで設定:
    - `ENVIRONMENT=production`
