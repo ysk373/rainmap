@@ -1,5 +1,6 @@
 import {
   JAPAN_COVERAGE_BBOX,
+  defaultFrameIndexForUpcoming,
   frameIdForEntry,
   jmaNowcTimeToUtcIso,
   type TargetTimeEntry,
@@ -34,6 +35,13 @@ export function buildRadarMetaV1(input: {
   const latest =
     framesAsc.length === 0 ? null : framesAsc[framesAsc.length - 1]!.time;
 
+  const upcomingIdx = defaultFrameIndexForUpcoming(
+    framesAsc.map((f) => f.time),
+    now,
+  );
+  const default_frame_id =
+    framesAsc.length === 0 ? null : framesAsc[upcomingIdx]!.id;
+
   const tile_url_template = `${apiOrigin}/tiles/nowc/{frame_id}/{z}/{x}/{y}.png`;
 
   return {
@@ -41,6 +49,7 @@ export function buildRadarMetaV1(input: {
     crs: "EPSG:3857",
     tile_url_template,
     latest_available_time: latest,
+    default_frame_id,
     stale,
     coverage: {
       bbox: JAPAN_COVERAGE_BBOX,
@@ -71,6 +80,7 @@ export function fakeMeta(apiOrigin: string): RadarMetaV1 {
         zoom_range: { min: 4, max: 10 },
       },
     ],
+    default_frame_id: "fake_frame",
     time_estimated: true,
     provider_attribution: "FAKE PROVIDER（開発・テスト用）",
   };

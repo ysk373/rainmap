@@ -56,6 +56,26 @@ export function frameIdForEntry(e: TargetTimeEntry): string {
   return `${e.basetime}_${e.validtime}`;
 }
 
+/**
+ * 「これから雨が降りそうか」向けに初期表示するフレームを選ぶ。
+ * 時系列は昇順（古い→新しい）、各 time は UTC の ISO 8601。
+ *
+ * ルール: サーバ時刻 now 以降で最も早いコマを選ぶ（短いリードの予報・解析）。
+ * 一覧がすべて過去なら最後のコマ（直近の観測に相当）にフォールバック。
+ */
+export function defaultFrameIndexForUpcoming(
+  frameTimesIsoUtc: readonly string[],
+  nowMs: number,
+): number {
+  const n = frameTimesIsoUtc.length;
+  if (n === 0) return 0;
+  for (let i = 0; i < n; i++) {
+    const ms = Date.parse(frameTimesIsoUtc[i]!);
+    if (!Number.isNaN(ms) && ms >= nowMs) return i;
+  }
+  return n - 1;
+}
+
 /** Web Mercator XYZ タイル (z/x/y) の WGS84 近似外接矩形（Leaflet/OSM と同系） */
 export function xyzTileBoundsWgs84(
   z: number,

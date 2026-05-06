@@ -13,6 +13,8 @@ export type RadarMetaV1 = {
     time: string;
     zoom_range: { min: number; max: number };
   }>;
+  /** 主用途（直近の降水見通し）向けに推奨するフレーム。無い場合はクライアントが従来どおり latest を使う。 */
+  default_frame_id: string | null;
   time_estimated?: boolean;
   provider_attribution?: string;
 };

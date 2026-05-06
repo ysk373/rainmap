@@ -7,6 +7,7 @@ type RadarMeta = {
   crs: string;
   tile_url_template: string;
   latest_available_time: string | null;
+  default_frame_id?: string | null;
   stale: boolean;
   coverage: { bbox: [number, number, number, number]; tile_matrix: string };
   frames: Array<{ id: string; time: string; zoom_range: { min: number; max: number } }>;
@@ -173,7 +174,10 @@ function main(): void {
 
     if (initial) {
       let idx = frames.length - 1;
-      if (meta.latest_available_time) {
+      if (meta.default_frame_id) {
+        const rec = frames.findIndex((f) => f.id === meta.default_frame_id);
+        if (rec >= 0) idx = rec;
+      } else if (meta.latest_available_time) {
         const hit = frames.findIndex((f) => f.time === meta.latest_available_time);
         if (hit >= 0) idx = hit;
       }
