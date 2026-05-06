@@ -1,0 +1,80 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #0f172a;
+  background: #f8fafc;
+}
+
+body {
+  margin: 0;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.bar {
+  padding: 0.5rem 1rem;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.bar h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.status {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.status.stale {
+  color: #fbbf24;
+}
+
+#map {
+  flex: 1;
+  min-height: 0;
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.attr {
+  margin: 0;
+  flex: 1 1 200px;
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.controls button {
+  cursor: pointer;
+  border: none;
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+  background: #334155;
+  color: #f8fafc;
+}
+
+.controls button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.frame-label {
+  font-size: 0.8rem;
+  margin-left: 0.35rem;
+}
