@@ -1,6 +1,10 @@
 /** 純粋関数・定数（IO なし） */
 
-/** JMA nowc の basetime/validtime（YYYYMMDDHHmmss）を UTC として ISO 8601 化 */
+/**
+ * JMA nowc の basetime/validtime（YYYYMMDDHHmmss）を
+ * **日本標準時（JST）のローカル日時**として解釈し、UTC の ISO 8601（末尾 Z）へ変換する。
+ * 防災気象の targetTimes／タイル URL の時刻はこの解釈で気象庁サイトの表示と整合する。
+ */
 export function jmaNowcTimeToUtcIso(jma: string): string {
   if (!/^\d{14}$/.test(jma)) {
     throw new Error(`invalid_jma_time:${jma}`);
@@ -11,7 +15,7 @@ export function jmaNowcTimeToUtcIso(jma: string): string {
   const h = jma.slice(8, 10);
   const mi = jma.slice(10, 12);
   const s = jma.slice(12, 14);
-  const ms = Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`);
+  const ms = Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${s}+09:00`);
   if (Number.isNaN(ms)) {
     throw new Error(`invalid_jma_time_parse:${jma}`);
   }
