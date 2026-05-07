@@ -65,13 +65,14 @@ function leafletTemplateFromMetaTemplate(
     .replace("{y}", "{y}");
 }
 
-function formatLocalTime(isoUtc: string): string {
+/** 気象庁ナウキャストのコマ時刻は常に日本標準時で表示（端末のタイムゾーンに依存しない） */
+function formatFrameTimeJst(isoUtc: string): string {
   try {
     const d = new Date(isoUtc);
     return new Intl.DateTimeFormat("ja-JP", {
       dateStyle: "short",
       timeStyle: "medium",
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timeZone: "Asia/Tokyo",
     }).format(d);
   } catch {
     return isoUtc;
@@ -134,7 +135,7 @@ function main(): void {
     const role = frame.role;
     const tag =
       role === "forecast" ? "予報" : role === "analysis" ? "観測" : "";
-    frameLabel.textContent = `${frameIndex + 1}/${frames.length} · ${tag ? `${tag} · ` : ""}${formatLocalTime(frame.time)}`;
+    frameLabel.textContent = `${frameIndex + 1}/${frames.length} · ${tag ? `${tag} · ` : ""}${formatFrameTimeJst(frame.time)}`;
   }
 
   function togglePlay(): void {
