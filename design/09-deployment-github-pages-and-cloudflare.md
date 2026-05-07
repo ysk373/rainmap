@@ -78,11 +78,13 @@ https://rainmap-api.example.com/tiles/nowc/{frame_id}/{z}/{x}/{y}.png
 
 | 設計上の要素（`03`/`04`） | Cloudflare 上の実装イメージ |
 |---------------------------|---------------------------|
-| `radar-worker` / スケジューラ | **Cron Triggers** で定期実行（例: `targetTimes_*.json` 取得。宣言更新周期 `T_decl` 以上の間隔＋ジッター） |
+| `radar-worker` / スケジューラ | **Cron Triggers**（**現行 `wrangler.toml`**: `*/5 * * * *`）で `targetTimes_*.json` 取得。論理設計の `T_decl`＋ジッターは `03` の **MVP 差分**を参照 |
 | メタ索引・短文フラグ | **Workers KV**（小さく低頻度更新の状態に限定） |
 | `TileStore`（キャッシュ） | **Cache API** / **エッジキャッシュ** を主とする。大量タイルバイト列の永続化が必要になった段階で **R2** を検討 |
 | `radar-api` | Worker の HTTP ルート（`fetch` ハンドラ） |
 | CDN | Worker 応答の `Cache-Control` により **Cloudflare エッジ**がキャッシュ |
+
+**運用**: **`GET /healthz`** は `no-store`。本文に **`jma_nowc_time_parse`**（デプロイされた JMA 14 桁解釈ラベル）を含める（`02`）。
 
 **単一プロセス**ではないが、**単一 Worker プロジェクト**（モジュール分割）に論理モジュールをマップする想定とする。
 
@@ -99,13 +101,15 @@ https://rainmap-api.example.com/tiles/nowc/{frame_id}/{z}/{x}/{y}.png
 
 ## 5. GitHub Pages 側
 
-- **ビルド**: リポジトリ内の SPA を GitHub Actions でビルドし、`gh-pages` ブランチまたは **GitHub Actions Pages** で公開してよい。
+- **ビルド**: リポジトリ内の SPA を GitHub Actions でビルドし、`gh-pages` ブランチまたは **GitHub Actions Pages** で公開してよい。**本リポジトリ**は **`.github/workflows/deploy-pages.yml`** により **`main` へ `web/**` がプッシュされたとき**に **Actions Pages** へデプロイする（`VITE_API_BASE_URL` はリポジトリ **Variables**、`VITE_BASE_PATH=/rainmap/`）。
+- **CI**: **`.github/workflows/rainmap-ci.yml`** で `worker` の typecheck と `web` のビルド検証。**Worker の Wrangler デプロイは CI に含めていない**（手動または別ワークフローで行う想定。詳細は `README.md`）。
 - **設定**: API のベース URL は **ビルド時環境変数**（例: `VITE_API_BASE_URL`）で注入し、**リポジトリに秘密値をコミットしない**。上流プロバイダ向けの秘密は **Cloudflare にのみ**置く（下記）。
 
 ---
 
 ## 6. シークレットと環境分離（MUST）
 
+- **`wrangler.toml` の `[vars]`**（コミット例）: `ENVIRONMENT`, `ALLOWED_ORIGINS`, `FAKE_PROVIDER`, `API_PUBLIC_ORIGIN`, **`ZOOM_MIN`**, **`ZOOM_MAX`**。Pages ビルド変数は Actions Variables（`VITE_API_BASE_URL` 等）。
 - **上流 API キー**（将来必要になった場合）・**本番フラグ**は **Wrangler `secret` / Cloudflare ダッシュボード**で管理する。
 - **本番でフェイクプロバイダを有効にしてはならない**（`01`）。Worker の環境名に応じたガードを実装すること。
 
@@ -129,3 +133,4 @@ https://rainmap-api.example.com/tiles/nowc/{frame_id}/{z}/{x}/{y}.png
 
 - rev.1: GitHub Pages ＋ Cloudflare を規範デプロイとして追加
 - rev.2: Cache API/KV/R2 の役割分担、`coverage` 外欠損の短期キャッシュ、`T_decl` 準拠の Cron 方針を追記
+- rev.3: **Actions ワークフロー名**（`rainmap-ci.yml` / `deploy-pages.yml`）、**Cron `*/5` 実装**、**`ZOOM_*` vars**、**`/healthz` 拡張**を追記

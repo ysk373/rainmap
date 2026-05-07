@@ -75,6 +75,15 @@
 - `readSnapshot` は **`v: 1` を読んだら従来どおり N1 のみ**として扱う（予報なし）。
 - `v: 2` では `n1Body` / `n2Body` をパースし、**エントリ配列をマージ**する。
 
+**現行 Worker の補足（informative）**
+
+- **KV キー**: スナップショットは **`radar:nowc:snapshot_v1`** に保存（キー名の `v1` と JSON 内の **`"v": 2`** は別概念）。旧 **`radar:nowc:target_times_body`** 等は読み取り時に v2 へ寄せる移行パスあり（`worker/src/index.ts` `readSnapshot`）。
+- **並列取得**: **`Promise.allSettled`**（N2 のみ失敗でも N1 で更新）。
+- **重複**: **`mergeTargetTimeEntries`** は **N1 を N2 より優先**（同一 `(basetime, validtime)`）。
+- **`forecast_available`**: マージ後の行のうち **`elements` に `hrpns` が無い行を除外したあと**、`role === "forecast"` が残れば true（N2 失敗と 1:1 ではない）。
+- **メタ構築時のフィルタ**: `elements` があって **`hrpns` を含まない行**は `frames` に出さない。
+- **`default_frame_id`**: `domain` の **`defaultFrameIndexForInitialView`**（`02` rev.9）。
+
 **任意（MAY）**
 
 - `n2FetchOk: false` のとき N2 本文は空文字または省略し、メタに `forecast_available: false` を付す。
@@ -99,7 +108,7 @@
 
 **重複（SHOULD）**
 
-- 同一 `(basetime, validtime)` が万一両方にあれば **1 件にマージ**（後勝ちまたは N1 優先など、実装で一貫した規則を一文で固定する）。
+- 同一 `(basetime, validtime)` が万一両方にあれば **1 件にマージ**。**現行実装**: **N1 優先**（`mergeTargetTimeEntries`）。
 
 ### 4. メタデータ契約（v1 のまま拡張）
 
@@ -108,7 +117,7 @@
 | フィールド | 型 | 意味 |
 |------------|-----|------|
 | `frames[].role` | `"analysis"` \| `"forecast"` \| 省略 | 当該フレームの性質。省略時は従来互換のためクライアントは「不明」としてよい |
-| `forecast_available` | boolean | **短期予報コマがメタに含まれるか**（N2 取得失敗時 false） |
+| `forecast_available` | boolean | **マージ後の `frames` に短期予報コマが含まれるか**（`02` / 現行 `catalog` の定義。N2 失敗と単純には一致しない） |
 | `latest_analysis_time` | string \| null | **optional**。`latest_available_time` と役割が混ざる場合に分解するならこちらへ寄せる |
 
 **互換注記**
@@ -133,14 +142,13 @@
 **推奨（SHOULD）**
 
 - タイムライン操作（前後コマ・再生）が **N1→N2 をまたいでも途切れない**こと（フレーム配列はサーバでソート済みのため、基本はそのまま動く）。
-- `maxFrames`（現状 24）では **予報コマが末尾から欠ける**可能性があるため、**観測＋予報のバランス**を取るなら **上位ロジックを server 側で「直近観測 N 件＋予報 M 件」**に切るか、`maxFrames` を見直す（別タスクで数値決定）。
+- `maxFrames`（参照実装 **56**）では **古いコマ側が欠ける**可能性があるため、**観測＋予報のバランス**を取るなら **上位ロジックを server 側で「直近観測 N 件＋予報 M 件」**に切るか、`maxFrames` を見直す（別タスクで数値決定）。
 
 ---
 
 ## 運用・監視
 
-- **`/healthz`**: `last_ingest_ms` に加え、**`n2_ok`（boolean）**を返すと運用が楽（任意）。
-- **ログ**: ingest 時に `n1_ok`, `n2_ok`, `merged_frame_count` を構造化ログに出す（SHOULD）。
+- **`/healthz`**: **`last_ingest_ms`**, **`n2_ok`**, **`jma_nowc_time_parse`**（例: `utc_digits`）を返す（`02`）。**ログ**: ingest 時に `n1_ok`, `n2_ok`, `merged_frame_count` を構造化ログに出す（SHOULD）。
 
 ---
 
@@ -162,6 +170,12 @@
 4. `catalog` / `types`: `frames[].role`, `forecast_available`, `latest_*` の整理。
 5. `design/02-system-architecture.md`: メタ契約の任意フィールド追記。
 6. `web`: ラベル表示と（任意）`maxFrames` 調整。
+
+---
+
+## 設計書と実装の同期（informative）
+
+上記チェックリストの項目は **MVP で概ね完了**。差分は本文の **「現行 Worker の補足」**および **`02` rev.9** を正とする。
 
 ---
 

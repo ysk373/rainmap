@@ -77,9 +77,11 @@
 
 | エンドポイント（論理） | 役割 |
 |------------------------|------|
-| `GET /api/v1/radar/meta`（例） | メタデータ JSON（契約は `02`。`coverage` と `{frame_id}` ベースの `tile_url_template` を含む） |
-| `GET /tiles/...`（テンプレートはメタが指示） | タイルバイナリ |
-| `GET /healthz`（例） | 死活・簡易依存チェック |
+| `GET /api/v1/radar/meta` | メタデータ JSON（契約は `02`）。**現行実装**は応答ヘッダ **`X-Rainmap-Jma-Nowc-Time`**（`utc_digits` 等）を付与。**Cache-Control**: 本番メタは **`max-age=30, stale-while-revalidate=120`**（フェイク時は `no-store`） |
+| `GET /tiles/nowc/{frame_id}/{z}/{x}/{y}.png` | HRPNs タイルの **オンデマンドプロキシ**。成功時 **`Cache-Control: public, max-age=86400, immutable`**（`worker/src/index.ts`） |
+| `GET /healthz` | 死活・鮮度の目安。**JSON**: `ok`, `environment`, `fake_provider`, `last_ingest_ms`, `n2_ok`, **`jma_nowc_time_parse`**。**Cache-Control**: `no-store` |
+
+**参照 Web（`web/src/main.ts`）**: メタ `fetch` は `cache: "no-store"`、**約 120s** ポーリング、可視タブ復帰時に再取得。タイムラインは **最大 56 コマ**（`frames` 末尾スライス）。
 
 **オリジン分割（規範）**: フロントは **GitHub Pages**、API は **別オリジンの Workers**。そのため **`tile_url_template` は絶対 URL**、`Access-Control-Allow-Origin` は **`09`** に従いフロントオリジンを許可する。
 
@@ -118,3 +120,4 @@
 - rev.1: 最小構成での API・サービス整理を追加（Vercel／Cloudflare は任意と明示）。
 - rev.2: **GitHub Pages ＋ Cloudflare Workers** を規範構成として固定し、`09` に委譲。
 - rev.3: `coverage` と `{frame_id}` テンプレート、Cache API/KV の役割分担を反映。
+- rev.4: 自前 API の **具体パス**、**メタ／タイル／healthz の Cache-Control**、**`X-Rainmap-Jma-Nowc-Time` / `jma_nowc_time_parse`**、参照 Web のポーリング・56 コマを追記。

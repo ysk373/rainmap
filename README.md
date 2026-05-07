@@ -29,7 +29,7 @@ npx wrangler dev
 ```
 
 - メタ: `http://127.0.0.1:8787/api/v1/radar/meta`
-- ヘルス: `http://127.0.0.1:8787/healthz`
+- ヘルス: `http://127.0.0.1:8787/healthz`（`last_ingest_ms`, `n2_ok`, **`jma_nowc_time_parse`** 等）
 
 **開発環境**（`ENVIRONMENT` が `production` 以外）では、KV が空のとき **初回のメタ取得で JMA を直接フェッチ**してスナップショットを埋めます（ローカル体験用）。
 
@@ -73,6 +73,7 @@ VITE_API_BASE_URL=https://<your-worker-host> VITE_BASE_PATH=/<repo>/ npm run bui
    - `ALLOWED_ORIGINS=https://<org>.github.io`（必要なら `https://<org>.github.io/<repo>` も）
    - `FAKE_PROVIDER=false`
    - `API_PUBLIC_ORIGIN=https://<worker の公開オリジン>`（カスタムドメイン推奨）
+   - （任意）`ZOOM_MIN` / `ZOOM_MAX`（コミット値の上書き）
 4. `npx wrangler deploy`
 
 **本番チェックリスト（重要）**
@@ -95,6 +96,7 @@ VITE_API_BASE_URL=https://<your-worker-host> VITE_BASE_PATH=/<repo>/ npm run bui
 
 ## 変更履歴（実装）
 
+- **0.2.1**: JMA nowc **14 桁を UTC として解釈**（`utc_digits`）。**`/healthz`** に `jma_nowc_time_parse`、**`/api/v1/radar/meta`** に **`X-Rainmap-Jma-Nowc-Time`**（デプロイ確認用）。参照 Web のコマ時刻は **`Asia/Tokyo` 固定表示**。**`default_frame_id`** は「直近未来 → 最新 analysis → 末尾」。
 - **0.2.0**: N1＋N2 イングエスト、KV `v:2`、メタに `forecast_available` / `frames[].role`、フレームラベルに観測・予報表示
 - **0.1.1**: レビュー反映（KV 単一キー、本番のメタウォームアップ方針、タイル 404 JSON、coverage 判定、フェッチ上限・タイムアウト、フロントのメタ再取得・`setUrl`・現地時刻表示など）
 - **0.1.0**: MVP 実装（JMA nowc / メタ v1 / タイルプロキシ / Cron+KV / Leaflet UI）
