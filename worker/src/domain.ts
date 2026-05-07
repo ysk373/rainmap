@@ -2,8 +2,11 @@
 
 /**
  * JMA nowc の basetime/validtime（YYYYMMDDHHmmss）を
- * **日本標準時（JST）のローカル日時**として解釈し、UTC の ISO 8601（末尾 Z）へ変換する。
- * 防災気象の targetTimes／タイル URL の時刻はこの解釈で気象庁サイトの表示と整合する。
+ * **協定世界時（UTC）のローカル日時**（各成分は UTC の壁時計）として解釈し、
+ * ISO 8601 UTC（末尾 Z）へ正規化する。
+ *
+ * 他サービスとの突合や配信実態では UTC であることが多い前提。
+ * UI ではクライアントが `Asia/Tokyo` などで日本時間表示に変換する。
  */
 export function jmaNowcTimeToUtcIso(jma: string): string {
   if (!/^\d{14}$/.test(jma)) {
@@ -15,7 +18,7 @@ export function jmaNowcTimeToUtcIso(jma: string): string {
   const h = jma.slice(8, 10);
   const mi = jma.slice(10, 12);
   const s = jma.slice(12, 14);
-  const ms = Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${s}+09:00`);
+  const ms = Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`);
   if (Number.isNaN(ms)) {
     throw new Error(`invalid_jma_time_parse:${jma}`);
   }
