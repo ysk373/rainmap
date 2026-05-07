@@ -1,6 +1,6 @@
 import {
   JAPAN_COVERAGE_BBOX,
-  defaultFrameIndexForUpcoming,
+  defaultFrameIndexForInitialView,
   frameIdForEntry,
   frameRoleFromEntry,
   jmaNowcTimeToUtcIso,
@@ -48,12 +48,9 @@ export function buildRadarMetaV1(input: {
 
   const forecast_available = framesAsc.some((f) => f.role === "forecast");
 
-  const upcomingIdx = defaultFrameIndexForUpcoming(
-    framesAsc.map((f) => f.time),
-    now,
-  );
+  const defaultIdx = defaultFrameIndexForInitialView(framesAsc, now);
   const default_frame_id =
-    framesAsc.length === 0 ? null : framesAsc[upcomingIdx]!.id;
+    framesAsc.length === 0 ? null : framesAsc[defaultIdx]!.id;
 
   const tile_url_template = `${apiOrigin}/tiles/nowc/{frame_id}/{z}/{x}/{y}.png`;
 

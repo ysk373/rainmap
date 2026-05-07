@@ -88,22 +88,34 @@ export function mergeTargetTimeEntries(
 }
 
 /**
- * 「これから雨が降りそうか」向けに初期表示するフレームを選ぶ。
- * 時系列は昇順（古い→新しい）、各 time は UTC の ISO 8601。
+ * 雨雲 UI の初期フレーム index（時系列は昇順、各 time は UTC ISO）。
  *
- * ルール: サーバ時刻 now 以降で最も早いコマを選ぶ（短いリードの予報・解析）。
- * 一覧がすべて過去なら最後のコマ（直近の観測に相当）にフォールバック。
+ * 1) サーバ時刻 now **以降**で最も早いコマ（短いリードの予報・解析）
+ * 2) 無ければ **最新の解析コマ**（analysis のうち時刻最大＝気象庁の「今に近い実況寄り」）
+ * 3) 解析が無いだけの場合は最後のコマ
+ *
+ * 従来 (2) が「一覧末尾＝予報の最終コマ」だったため、実況に近い情報より
+ * 1時間先の予報先端が初期表示になる問題があった。
  */
-export function defaultFrameIndexForUpcoming(
-  frameTimesIsoUtc: readonly string[],
+export function defaultFrameIndexForInitialView(
+  framesAsc: readonly { time: string; role: FrameRole }[],
   nowMs: number,
 ): number {
-  const n = frameTimesIsoUtc.length;
+  const n = framesAsc.length;
   if (n === 0) return 0;
   for (let i = 0; i < n; i++) {
-    const ms = Date.parse(frameTimesIsoUtc[i]!);
+    const ms = Date.parse(framesAsc[i]!.time);
     if (!Number.isNaN(ms) && ms >= nowMs) return i;
   }
+  let latestAnalysisIdx = 0;
+  let anyAnalysis = false;
+  for (let i = 0; i < n; i++) {
+    if (framesAsc[i]!.role === "analysis") {
+      latestAnalysisIdx = i;
+      anyAnalysis = true;
+    }
+  }
+  if (anyAnalysis) return latestAnalysisIdx;
   return n - 1;
 }
 
