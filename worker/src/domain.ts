@@ -1,5 +1,8 @@
 /** 純粋関数・定数（IO なし） */
 
+/** 14 桁時刻の解釈（`healthz` / `X-Rainmap-Jma-Nowc-Time` でデプロイ確認用） */
+export const JMA_NOWC_TIME_PARSE_MODE = "utc_digits";
+
 /**
  * JMA nowc の basetime/validtime（YYYYMMDDHHmmss）を
  * **協定世界時（UTC）のローカル日時**（各成分は UTC の壁時計）として解釈し、

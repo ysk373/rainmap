@@ -6,7 +6,13 @@ import {
   fetchUpstreamTile,
   parseTargetTimesBody,
 } from "./provider";
-import { JAPAN_COVERAGE_BBOX, mergeTargetTimeEntries, tileIntersectsCoverageBbox, type TargetTimeEntry } from "./domain";
+import {
+  JAPAN_COVERAGE_BBOX,
+  JMA_NOWC_TIME_PARSE_MODE,
+  mergeTargetTimeEntries,
+  tileIntersectsCoverageBbox,
+  type TargetTimeEntry,
+} from "./domain";
 
 const KV_SNAPSHOT = "radar:nowc:snapshot_v1";
 /** 後方互換: 旧 2 キー構成からの移行用 */
@@ -325,6 +331,7 @@ export default {
           fake_provider: isFakeEnabled(env),
           last_ingest_ms: snap ? snap.fetchedAtMs : null,
           n2_ok: snap ? snap.n2FetchOk : null,
+          jma_nowc_time_parse: JMA_NOWC_TIME_PARSE_MODE,
         },
         { cacheControl: "no-store" },
       );
@@ -336,6 +343,7 @@ export default {
       if (isFakeEnabled(env)) {
         return jsonResponse(request, env, fakeMeta(originForMeta), {
           cacheControl: "no-store",
+          extraHeaders: { "X-Rainmap-Jma-Nowc-Time": JMA_NOWC_TIME_PARSE_MODE },
         });
       }
 
@@ -383,6 +391,7 @@ export default {
 
       return jsonResponse(request, env, meta, {
         cacheControl: "max-age=30, stale-while-revalidate=120",
+        extraHeaders: { "X-Rainmap-Jma-Nowc-Time": JMA_NOWC_TIME_PARSE_MODE },
       });
     }
 
