@@ -90,6 +90,48 @@ function formatFrameTimeJst(isoUtc: string): string {
   }
 }
 
+function radarLayerOptions(radarZoomRange: { min: number; max: number }): L.TileLayerOptions {
+  return {
+    opacity: 0.75,
+    detectRetina: false,
+    minNativeZoom: radarZoomRange.min,
+    minZoom: MAP_MIN_ZOOM,
+    maxNativeZoom: radarZoomRange.max,
+    maxZoom: MAP_MAX_ZOOM,
+  };
+}
+
+type GridLayerInternal = L.GridLayer & {
+  _clampZoom(zoom: number): number;
+};
+
+type TileLayerConstructor = new (
+  url: string,
+  options?: L.TileLayerOptions,
+) => L.TileLayer;
+
+/**
+ * JMA ナウキャスト hrpns は偶数 z のみタイルが存在する (4,6,8,10)。
+ * 奇数 z では上流が 404 を返すため、取得ズームを偶数へ寄せる。
+ */
+const RadarTileLayer = L.TileLayer.extend({
+  _clampZoom(this: L.TileLayer, zoom: number): number {
+    const base = L.GridLayer.prototype as GridLayerInternal;
+    let z = base._clampZoom.call(this, zoom);
+    if (z % 2 !== 0) {
+      const floor = z - 1;
+      const ceil = z + 1;
+      const { minNativeZoom, maxNativeZoom } = this.options;
+      if (minNativeZoom !== undefined && floor >= minNativeZoom) {
+        z = floor;
+      } else if (maxNativeZoom !== undefined && ceil <= maxNativeZoom) {
+        z = ceil;
+      }
+    }
+    return z;
+  },
+}) as TileLayerConstructor;
+
 function main(): void {
   const statusEl = document.getElementById("status")!;
   const attrEl = document.getElementById("attr")!;
@@ -133,10 +175,7 @@ function main(): void {
     map.setMinZoom(MAP_MIN_ZOOM);
     map.setMaxZoom(MAP_MAX_ZOOM);
     if (radarLayer) {
-      radarLayer.options.minNativeZoom = radarZoomRange.min;
-      radarLayer.options.minZoom = MAP_MIN_ZOOM;
-      radarLayer.options.maxNativeZoom = radarZoomRange.max;
-      radarLayer.options.maxZoom = MAP_MAX_ZOOM;
+      Object.assign(radarLayer.options, radarLayerOptions(radarZoomRange));
       radarLayer.redraw();
     }
   }
@@ -149,21 +188,12 @@ function main(): void {
     const radarZoomRange = frame.zoom_range;
 
     if (!radarLayer) {
-      radarLayer = L.tileLayer(urlTemplate, {
-        opacity: 0.75,
-        minNativeZoom: radarZoomRange.min,
-        minZoom: MAP_MIN_ZOOM,
-        maxNativeZoom: radarZoomRange.max,
-        maxZoom: MAP_MAX_ZOOM,
-      });
+      radarLayer = new RadarTileLayer(urlTemplate, radarLayerOptions(radarZoomRange));
       radarLayer.addTo(map);
     } else {
       radarLayer.setUrl(urlTemplate);
       radarLayer.setOpacity(0.75);
-      radarLayer.options.minNativeZoom = radarZoomRange.min;
-      radarLayer.options.minZoom = MAP_MIN_ZOOM;
-      radarLayer.options.maxNativeZoom = radarZoomRange.max;
-      radarLayer.options.maxZoom = MAP_MAX_ZOOM;
+      Object.assign(radarLayer.options, radarLayerOptions(radarZoomRange));
       radarLayer.redraw();
     }
 
