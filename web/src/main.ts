@@ -30,8 +30,8 @@ const metaRefreshMs = 120_000;
 const DEFAULT_LAT = 35.4437;
 const DEFAULT_LON = 139.638;
 const DEFAULT_ZOOM = 10;
+const MAP_MIN_ZOOM = 1;
 const MAP_MAX_ZOOM = 18;
-const FALLBACK_ZOOM_MIN = 4;
 
 function clampZoom(z: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, z));
@@ -98,7 +98,7 @@ function main(): void {
   const btnNext = document.getElementById("btn-next") as HTMLButtonElement;
   const btnPlay = document.getElementById("btn-play") as HTMLButtonElement;
 
-  const mapZoomRange = { min: FALLBACK_ZOOM_MIN, max: MAP_MAX_ZOOM };
+  const mapZoomRange = { min: MAP_MIN_ZOOM, max: MAP_MAX_ZOOM };
   const q = parseQuery(mapZoomRange);
   const map = L.map("map", {
     minZoom: mapZoomRange.min,
@@ -130,15 +130,14 @@ function main(): void {
   }
 
   function syncZoomConstraints(radarZoomRange: { min: number; max: number }): void {
-    map.setMinZoom(radarZoomRange.min);
+    map.setMinZoom(MAP_MIN_ZOOM);
     map.setMaxZoom(MAP_MAX_ZOOM);
-    if (map.getZoom() < radarZoomRange.min) {
-      map.setZoom(radarZoomRange.min);
-    }
     if (radarLayer) {
-      radarLayer.options.minZoom = radarZoomRange.min;
+      radarLayer.options.minNativeZoom = radarZoomRange.min;
+      radarLayer.options.minZoom = MAP_MIN_ZOOM;
       radarLayer.options.maxNativeZoom = radarZoomRange.max;
       radarLayer.options.maxZoom = MAP_MAX_ZOOM;
+      radarLayer.redraw();
     }
   }
 
@@ -152,7 +151,8 @@ function main(): void {
     if (!radarLayer) {
       radarLayer = L.tileLayer(urlTemplate, {
         opacity: 0.75,
-        minZoom: radarZoomRange.min,
+        minNativeZoom: radarZoomRange.min,
+        minZoom: MAP_MIN_ZOOM,
         maxNativeZoom: radarZoomRange.max,
         maxZoom: MAP_MAX_ZOOM,
       });
@@ -160,9 +160,11 @@ function main(): void {
     } else {
       radarLayer.setUrl(urlTemplate);
       radarLayer.setOpacity(0.75);
-      radarLayer.options.minZoom = radarZoomRange.min;
+      radarLayer.options.minNativeZoom = radarZoomRange.min;
+      radarLayer.options.minZoom = MAP_MIN_ZOOM;
       radarLayer.options.maxNativeZoom = radarZoomRange.max;
       radarLayer.options.maxZoom = MAP_MAX_ZOOM;
+      radarLayer.redraw();
     }
 
     const role = frame.role;
