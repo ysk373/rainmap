@@ -32,6 +32,19 @@ const DEFAULT_LON = 139.638;
 const DEFAULT_ZOOM = 10;
 const MAP_MIN_ZOOM = 1;
 const MAP_MAX_ZOOM = 18;
+const SEARCH_ZOOM = 14;
+
+type GeocodeResult = {
+  label: string;
+  lat: number;
+  lon: number;
+};
+
+type GeocodeSearchResponse = {
+  query: string;
+  results: GeocodeResult[];
+  provider_attribution?: string;
+};
 
 function clampZoom(z: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, z));
@@ -110,6 +123,128 @@ type TileLayerConstructor = new (
   options?: L.TileLayerOptions,
 ) => L.TileLayer;
 
+async function fetchGeocodeResults(query: string): Promise<GeocodeSearchResponse> {
+  const res = await fetch(
+    `${apiBase}/api/v1/geocode/search?q=${encodeURIComponent(query)}`,
+    { cache: "default" },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`住所検索失敗 (${res.status}): ${text}`);
+  }
+  return (await res.json()) as GeocodeSearchResponse;
+}
+
+function updateMapUrl(lat: number, lon: number, z: number): void {
+  const url = new URL(window.location.href);
+  url.searchParams.set("lat", String(lat));
+  url.searchParams.set("lon", String(lon));
+  url.searchParams.set("z", String(z));
+  window.history.replaceState(null, "", url);
+}
+
+function setupAddressSearch(map: L.Map, markerLayer: L.LayerGroup): {
+  geocodeAttribution: string;
+} {
+  const form = document.getElementById("address-search-form") as HTMLFormElement;
+  const input = document.getElementById("address-input") as HTMLInputElement;
+  const submitBtn = form.querySelector(".address-submit") as HTMLButtonElement;
+  const resultsEl = document.getElementById("address-results")!;
+  const searchStatusEl = document.getElementById("address-search-status")!;
+  let geocodeAttribution =
+    "住所検索: 国土地理院（地理院地図。https://maps.gsi.go.jp/ ）";
+
+  function hideResults(): void {
+    resultsEl.hidden = true;
+    resultsEl.replaceChildren();
+  }
+
+  function goToResult(result: GeocodeResult): void {
+    hideResults();
+    input.value = result.label;
+    searchStatusEl.textContent = `「${result.label}」へ移動しました。`;
+    markerLayer.clearLayers();
+    markerLayer.addLayer(
+      L.circleMarker([result.lat, result.lon], {
+        radius: 7,
+        color: "#0f172a",
+        weight: 2,
+        fillColor: "#38bdf8",
+        fillOpacity: 0.95,
+      }),
+    );
+    const zoom = clampZoom(SEARCH_ZOOM, MAP_MIN_ZOOM, MAP_MAX_ZOOM);
+    map.flyTo([result.lat, result.lon], zoom, { duration: 0.8 });
+    updateMapUrl(result.lat, result.lon, zoom);
+  }
+
+  function showResults(results: GeocodeResult[]): void {
+    resultsEl.replaceChildren();
+    for (const result of results) {
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = result.label;
+      button.addEventListener("click", () => goToResult(result));
+      item.appendChild(button);
+      resultsEl.appendChild(item);
+    }
+    resultsEl.hidden = results.length === 0;
+  }
+
+  async function runSearch(): Promise<void> {
+    const query = input.value.trim();
+    if (!query) {
+      searchStatusEl.textContent = "住所または地名を入力してください。";
+      hideResults();
+      return;
+    }
+
+    submitBtn.disabled = true;
+    searchStatusEl.textContent = "検索中…";
+    hideResults();
+
+    try {
+      const payload = await fetchGeocodeResults(query);
+      if (payload.provider_attribution) {
+        geocodeAttribution = payload.provider_attribution;
+      }
+      if (payload.results.length === 0) {
+        searchStatusEl.textContent = "該当する住所が見つかりませんでした。";
+        return;
+      }
+      if (payload.results.length === 1) {
+        goToResult(payload.results[0]!);
+        return;
+      }
+      showResults(payload.results);
+      searchStatusEl.textContent = `${payload.results.length} 件見つかりました。選択してください。`;
+    } catch (err: unknown) {
+      searchStatusEl.textContent = `検索エラー: ${String(err)}`;
+    } finally {
+      submitBtn.disabled = false;
+    }
+  }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void runSearch();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!(event.target instanceof Node)) return;
+    if (!form.contains(event.target) && !resultsEl.contains(event.target)) {
+      hideResults();
+    }
+  });
+
+  return {
+    get geocodeAttribution() {
+      return geocodeAttribution;
+    },
+  };
+}
+
 /**
  * JMA ナウキャスト hrpns は偶数 z のみタイルが存在する (4,6,8,10)。
  * 奇数 z では上流が 404 を返すため、取得ズームを偶数へ寄せる。
@@ -152,6 +287,9 @@ function main(): void {
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
+
+  const searchMarkerLayer = L.layerGroup().addTo(map);
+  const addressSearch = setupAddressSearch(map, searchMarkerLayer);
 
   let radarLayer: L.TileLayer | null = null;
   let metaTemplate = "";
@@ -279,6 +417,7 @@ function main(): void {
 
     attrEl.textContent = [
       meta.provider_attribution,
+      addressSearch.geocodeAttribution,
       "ベース地図: OpenStreetMap（https://www.openstreetmap.org/copyright を参照）。",
     ]
       .filter(Boolean)

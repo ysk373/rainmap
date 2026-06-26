@@ -1,4 +1,5 @@
 import { buildRadarMetaV1, fakeMeta } from "./catalog";
+import { normalizeGeocodeQuery, searchJapaneseAddress } from "./geocode";
 import type { Env } from "./types";
 import {
   fetchJmaTargetTimesN1Body,
@@ -393,6 +394,28 @@ export default {
         cacheControl: "max-age=30, stale-while-revalidate=120",
         extraHeaders: { "X-Rainmap-Jma-Nowc-Time": JMA_NOWC_TIME_PARSE_MODE },
       });
+    }
+
+    if (path === "/api/v1/geocode/search" && request.method === "GET") {
+      const query = normalizeGeocodeQuery(url.searchParams.get("q") || "");
+      if (!query) {
+        return errorJson(request, env, 400, "invalid_query", "検索語を 1〜120 文字で指定してください。");
+      }
+
+      try {
+        const payload = await searchJapaneseAddress(query);
+        return jsonResponse(request, env, payload, {
+          cacheControl: "public, max-age=300, stale-while-revalidate=600",
+        });
+      } catch (e) {
+        return errorJson(
+          request,
+          env,
+          502,
+          "geocode_upstream_error",
+          "住所検索サービスへの接続に失敗しました。",
+        );
+      }
     }
 
     const tileMatch = /^\/tiles\/nowc\/([^/]+)\/(\d+)\/(\d+)\/(\d+)\.png$/.exec(path);
