@@ -69,6 +69,11 @@ body {
   color: #f8fafc;
 }
 
+.controls .btn-play {
+  min-width: 3.2rem;
+  font-size: 0.8rem;
+}
+
 .controls button:disabled {
   opacity: 0.45;
   cursor: not-allowed;

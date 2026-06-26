@@ -30,14 +30,14 @@ const metaRefreshMs = 120_000;
 const DEFAULT_LAT = 35.4437;
 const DEFAULT_LON = 139.638;
 const DEFAULT_ZOOM = 10;
+const MAP_MAX_ZOOM = 18;
 const FALLBACK_ZOOM_MIN = 4;
-const FALLBACK_ZOOM_MAX = 10;
 
 function clampZoom(z: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, z));
 }
 
-function parseQuery(zoomRange: { min: number; max: number }): {
+function parseQuery(mapZoomRange: { min: number; max: number }): {
   lat: number;
   lon: number;
   z: number;
@@ -46,11 +46,11 @@ function parseQuery(zoomRange: { min: number; max: number }): {
   const lat = Number.parseFloat(p.get("lat") || String(DEFAULT_LAT));
   const lon = Number.parseFloat(p.get("lon") ?? p.get("lng") ?? String(DEFAULT_LON));
   const z = Number.parseInt(p.get("z") || String(DEFAULT_ZOOM), 10);
-  const fallbackZ = clampZoom(DEFAULT_ZOOM, zoomRange.min, zoomRange.max);
+  const fallbackZ = clampZoom(DEFAULT_ZOOM, mapZoomRange.min, mapZoomRange.max);
   return {
     lat: Number.isFinite(lat) ? lat : DEFAULT_LAT,
     lon: Number.isFinite(lon) ? lon : DEFAULT_LON,
-    z: Number.isFinite(z) ? clampZoom(z, zoomRange.min, zoomRange.max) : fallbackZ,
+    z: Number.isFinite(z) ? clampZoom(z, mapZoomRange.min, mapZoomRange.max) : fallbackZ,
   };
 }
 
@@ -98,15 +98,15 @@ function main(): void {
   const btnNext = document.getElementById("btn-next") as HTMLButtonElement;
   const btnPlay = document.getElementById("btn-play") as HTMLButtonElement;
 
-  const initialZoomRange = { min: FALLBACK_ZOOM_MIN, max: FALLBACK_ZOOM_MAX };
-  const q = parseQuery(initialZoomRange);
+  const mapZoomRange = { min: FALLBACK_ZOOM_MIN, max: MAP_MAX_ZOOM };
+  const q = parseQuery(mapZoomRange);
   const map = L.map("map", {
-    minZoom: initialZoomRange.min,
-    maxZoom: initialZoomRange.max,
+    minZoom: mapZoomRange.min,
+    maxZoom: mapZoomRange.max,
   }).setView([q.lat, q.lon], q.z);
 
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: initialZoomRange.max,
+    maxZoom: 19,
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
@@ -125,20 +125,20 @@ function main(): void {
       window.clearInterval(playTimer);
       playTimer = null;
     }
-    btnPlay.textContent = "▶";
+    btnPlay.textContent = "再生";
     btnPlay.setAttribute("aria-pressed", "false");
   }
 
-  function syncMapZoomRange(zoomRange: { min: number; max: number }): void {
-    map.setMinZoom(zoomRange.min);
-    map.setMaxZoom(zoomRange.max);
-    const currentZoom = map.getZoom();
-    if (currentZoom < zoomRange.min || currentZoom > zoomRange.max) {
-      map.setZoom(clampZoom(currentZoom, zoomRange.min, zoomRange.max));
+  function syncZoomConstraints(radarZoomRange: { min: number; max: number }): void {
+    map.setMinZoom(radarZoomRange.min);
+    map.setMaxZoom(MAP_MAX_ZOOM);
+    if (map.getZoom() < radarZoomRange.min) {
+      map.setZoom(radarZoomRange.min);
     }
     if (radarLayer) {
-      radarLayer.options.minZoom = zoomRange.min;
-      radarLayer.options.maxZoom = zoomRange.max;
+      radarLayer.options.minZoom = radarZoomRange.min;
+      radarLayer.options.maxNativeZoom = radarZoomRange.max;
+      radarLayer.options.maxZoom = MAP_MAX_ZOOM;
     }
   }
 
@@ -147,20 +147,22 @@ function main(): void {
     frameIndex = ((i % frames.length) + frames.length) % frames.length;
     const frame = frames[frameIndex]!;
     const urlTemplate = leafletTemplateFromMetaTemplate(metaTemplate, frame.id);
-    const zoomRange = frame.zoom_range;
+    const radarZoomRange = frame.zoom_range;
 
     if (!radarLayer) {
       radarLayer = L.tileLayer(urlTemplate, {
         opacity: 0.75,
-        maxZoom: zoomRange.max,
-        minZoom: zoomRange.min,
+        minZoom: radarZoomRange.min,
+        maxNativeZoom: radarZoomRange.max,
+        maxZoom: MAP_MAX_ZOOM,
       });
       radarLayer.addTo(map);
     } else {
       radarLayer.setUrl(urlTemplate);
       radarLayer.setOpacity(0.75);
-      radarLayer.options.minZoom = zoomRange.min;
-      radarLayer.options.maxZoom = zoomRange.max;
+      radarLayer.options.minZoom = radarZoomRange.min;
+      radarLayer.options.maxNativeZoom = radarZoomRange.max;
+      radarLayer.options.maxZoom = MAP_MAX_ZOOM;
     }
 
     const role = frame.role;
@@ -175,7 +177,7 @@ function main(): void {
       stopPlay();
       return;
     }
-    btnPlay.textContent = "■";
+    btnPlay.textContent = "停止";
     btnPlay.setAttribute("aria-pressed", "true");
     playTimer = window.setInterval(() => {
       applyFrame(frameIndex + 1);
@@ -207,7 +209,7 @@ function main(): void {
 
     frames = meta.frames.slice(-maxFrames);
     if (frames.length > 0) {
-      syncMapZoomRange(frames[0]!.zoom_range);
+      syncZoomConstraints(frames[0]!.zoom_range);
     }
     if (frames.length === 0) {
       statusEl.textContent = "利用可能なフレームがありません。";
