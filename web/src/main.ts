@@ -30,16 +30,27 @@ const metaRefreshMs = 120_000;
 const DEFAULT_LAT = 35.4437;
 const DEFAULT_LON = 139.638;
 const DEFAULT_ZOOM = 10;
+const FALLBACK_ZOOM_MIN = 4;
+const FALLBACK_ZOOM_MAX = 10;
 
-function parseQuery(): { lat: number; lon: number; z: number } {
+function clampZoom(z: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, z));
+}
+
+function parseQuery(zoomRange: { min: number; max: number }): {
+  lat: number;
+  lon: number;
+  z: number;
+} {
   const p = new URLSearchParams(window.location.search);
   const lat = Number.parseFloat(p.get("lat") || String(DEFAULT_LAT));
   const lon = Number.parseFloat(p.get("lon") ?? p.get("lng") ?? String(DEFAULT_LON));
   const z = Number.parseInt(p.get("z") || String(DEFAULT_ZOOM), 10);
+  const fallbackZ = clampZoom(DEFAULT_ZOOM, zoomRange.min, zoomRange.max);
   return {
     lat: Number.isFinite(lat) ? lat : DEFAULT_LAT,
     lon: Number.isFinite(lon) ? lon : DEFAULT_LON,
-    z: Number.isFinite(z) ? z : DEFAULT_ZOOM,
+    z: Number.isFinite(z) ? clampZoom(z, zoomRange.min, zoomRange.max) : fallbackZ,
   };
 }
 
@@ -87,11 +98,15 @@ function main(): void {
   const btnNext = document.getElementById("btn-next") as HTMLButtonElement;
   const btnPlay = document.getElementById("btn-play") as HTMLButtonElement;
 
-  const q = parseQuery();
-  const map = L.map("map", { maxZoom: 18 }).setView([q.lat, q.lon], q.z);
+  const initialZoomRange = { min: FALLBACK_ZOOM_MIN, max: FALLBACK_ZOOM_MAX };
+  const q = parseQuery(initialZoomRange);
+  const map = L.map("map", {
+    minZoom: initialZoomRange.min,
+    maxZoom: initialZoomRange.max,
+  }).setView([q.lat, q.lon], q.z);
 
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
+    maxZoom: initialZoomRange.max,
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
@@ -114,22 +129,38 @@ function main(): void {
     btnPlay.setAttribute("aria-pressed", "false");
   }
 
+  function syncMapZoomRange(zoomRange: { min: number; max: number }): void {
+    map.setMinZoom(zoomRange.min);
+    map.setMaxZoom(zoomRange.max);
+    const currentZoom = map.getZoom();
+    if (currentZoom < zoomRange.min || currentZoom > zoomRange.max) {
+      map.setZoom(clampZoom(currentZoom, zoomRange.min, zoomRange.max));
+    }
+    if (radarLayer) {
+      radarLayer.options.minZoom = zoomRange.min;
+      radarLayer.options.maxZoom = zoomRange.max;
+    }
+  }
+
   function applyFrame(i: number): void {
     if (frames.length === 0 || !metaTemplate) return;
     frameIndex = ((i % frames.length) + frames.length) % frames.length;
     const frame = frames[frameIndex]!;
     const urlTemplate = leafletTemplateFromMetaTemplate(metaTemplate, frame.id);
+    const zoomRange = frame.zoom_range;
 
     if (!radarLayer) {
       radarLayer = L.tileLayer(urlTemplate, {
         opacity: 0.75,
-        maxZoom: frame.zoom_range.max,
-        minZoom: frame.zoom_range.min,
+        maxZoom: zoomRange.max,
+        minZoom: zoomRange.min,
       });
       radarLayer.addTo(map);
     } else {
       radarLayer.setUrl(urlTemplate);
       radarLayer.setOpacity(0.75);
+      radarLayer.options.minZoom = zoomRange.min;
+      radarLayer.options.maxZoom = zoomRange.max;
     }
 
     const role = frame.role;
@@ -175,6 +206,9 @@ function main(): void {
     ]);
 
     frames = meta.frames.slice(-maxFrames);
+    if (frames.length > 0) {
+      syncMapZoomRange(frames[0]!.zoom_range);
+    }
     if (frames.length === 0) {
       statusEl.textContent = "利用可能なフレームがありません。";
       btnPrev.disabled = true;
