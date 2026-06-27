@@ -18,7 +18,7 @@ FAKE_PROVIDER = "false"
 ZOOM_MIN = "4"
 ZOOM_MAX = "10"
 # 本番では Workers のカスタムドメイン等の確定オリジンを設定推奨
-API_PUBLIC_ORIGIN = "https://rainmap-api.ysk373-rainmap.workers.dev"
+API_PUBLIC_ORIGIN = "https://rainmap-api.ysk373.workers.dev"
 
 # 初回: wrangler kv:namespace create RADAR_KV の id を貼る
 [[kv_namespaces]]
