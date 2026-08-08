@@ -31,6 +31,8 @@ export type Env = {
   ALLOWED_ORIGINS: string;
   FAKE_PROVIDER: string;
   API_PUBLIC_ORIGIN?: string;
+  /** GitHub Pages 等の地図フロント基底 URL（末尾スラッシュ可）。アラートの map_url 生成に使う */
+  WEB_PUBLIC_BASE?: string;
   ZOOM_MIN?: string;
   ZOOM_MAX?: string;
 };

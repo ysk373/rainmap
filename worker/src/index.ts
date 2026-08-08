@@ -14,6 +14,11 @@ import {
   tileIntersectsCoverageBbox,
   type TargetTimeEntry,
 } from "./domain";
+import {
+  evaluatePrecipAtPoint,
+  fakePrecipAlert,
+  pointInCoverage,
+} from "./precip";
 
 const KV_SNAPSHOT = "radar:nowc:snapshot_v1";
 /** 後方互換: 旧 2 キー構成からの移行用 */
@@ -414,6 +419,124 @@ export default {
           502,
           "geocode_upstream_error",
           "住所検索サービスへの接続に失敗しました。",
+        );
+      }
+    }
+
+    if (path === "/api/v1/alerts/precip" && request.method === "GET") {
+      const lat = Number.parseFloat(url.searchParams.get("lat") || "");
+      const lon = Number.parseFloat(url.searchParams.get("lon") || "");
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        return errorJson(
+          request,
+          env,
+          400,
+          "invalid_lat_lon",
+          "lat / lon を十進度（WGS84）で指定してください。",
+        );
+      }
+      if (!pointInCoverage(lat, lon)) {
+        return errorJson(
+          request,
+          env,
+          400,
+          "out_of_coverage",
+          "指定地点は rainmap の coverage（日本域）外です。",
+        );
+      }
+
+      const horizonMinutes = Math.min(
+        60,
+        Math.max(5, Number.parseInt(url.searchParams.get("horizon_minutes") || "60", 10) || 60),
+      );
+      const minIntensityMmh = Math.min(
+        80,
+        Math.max(0.1, Number.parseFloat(url.searchParams.get("min_mmh") || "1") || 1),
+      );
+      const zb = zoomBounds(env);
+      const zoomRaw = Number.parseInt(url.searchParams.get("z") || "8", 10);
+      const zoom = Number.isFinite(zoomRaw) ? zoomRaw : 8;
+      const radiusPx = Math.min(
+        8,
+        Math.max(0, Number.parseInt(url.searchParams.get("radius_px") || "2", 10) || 2),
+      );
+      const webBase = env.WEB_PUBLIC_BASE || "";
+
+      if (isFakeEnabled(env)) {
+        return jsonResponse(
+          request,
+          env,
+          fakePrecipAlert({
+            lat,
+            lon,
+            zoom,
+            horizonMinutes,
+            minIntensityMmh,
+            webPublicBase: webBase,
+          }),
+          { cacheControl: "no-store" },
+        );
+      }
+
+      let snap = await readSnapshot(env);
+      if (!snap) {
+        if (!isProduction(env)) {
+          try {
+            await ingestNowc(env, correlationId);
+            snap = await readSnapshot(env);
+          } catch (e) {
+            return errorJson(
+              request,
+              env,
+              503,
+              "meta_unavailable",
+              `上流の取得に失敗しました: ${String(e)}`,
+            );
+          }
+        } else {
+          return errorJson(
+            request,
+            env,
+            503,
+            "warming_up",
+            "初回データを Cron で取得中です。数分後に再試行してください。",
+            {
+              cacheControl: "no-store",
+              extraHeaders: { "Retry-After": "120" },
+            },
+          );
+        }
+      }
+
+      if (!snap || snap.entries.length === 0) {
+        return errorJson(request, env, 503, "meta_empty", "メタデータを構築できません。");
+      }
+
+      try {
+        const alert = await evaluatePrecipAtPoint({
+          lat,
+          lon,
+          entries: snap.entries,
+          fetchedAtMs: snap.fetchedAtMs,
+          nowMs: Date.now(),
+          horizonMinutes,
+          minIntensityMmh,
+          zoom,
+          zoomMin: zb.min,
+          zoomMax: zb.max,
+          radiusPx,
+          webPublicBase: webBase,
+        });
+        return jsonResponse(request, env, alert, {
+          cacheControl: "max-age=60, stale-while-revalidate=120",
+        });
+      } catch (e) {
+        return errorJson(
+          request,
+          env,
+          502,
+          "precip_eval_failed",
+          `降水評価に失敗しました: ${String(e)}`,
         );
       }
     }

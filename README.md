@@ -29,6 +29,7 @@ npx wrangler dev
 ```
 
 - メタ: `http://127.0.0.1:8787/api/v1/radar/meta`
+- 地点アラート: `http://127.0.0.1:8787/api/v1/alerts/precip?lat=35.681236&lon=139.767125`
 - ヘルス: `http://127.0.0.1:8787/healthz`（`last_ingest_ms`, `n2_ok`, **`jma_nowc_time_parse`** 等）
 
 **開発環境**（`ENVIRONMENT` が `production` 以外）では、KV が空のとき **初回のメタ取得で JMA を直接フェッチ**してスナップショットを埋めます（ローカル体験用）。
@@ -73,8 +74,23 @@ VITE_API_BASE_URL=https://<your-worker-host> VITE_BASE_PATH=/<repo>/ npm run bui
    - `ALLOWED_ORIGINS=https://<org>.github.io`（必要なら `https://<org>.github.io/<repo>` も）
    - `FAKE_PROVIDER=false`
    - `API_PUBLIC_ORIGIN=https://<worker の公開オリジン>`（カスタムドメイン推奨）
+   - （任意）`WEB_PUBLIC_BASE=https://<org>.github.io/<repo>/`（Slack 通知の地図リンク用）
    - （任意）`ZOOM_MIN` / `ZOOM_MAX`（コミット値の上書き）
 4. `npx wrangler deploy`
+
+## Slack に「もうすぐ雨」通知（n8n）
+
+雨雲レーダーの短期予報コマを地点サンプリングし、降り始めそうなときだけ Slack へ流せます。
+
+1. Worker をデプロイ（上記）。`WEB_PUBLIC_BASE` を設定すると応答の `map_url` に地図リンクが入ります
+2. n8n に [`n8n/upcoming-rain-slack.json`](n8n/upcoming-rain-slack.json) を Import
+3. 「監視地点」の緯度経度・API オリジンを合わせ、Slack 資格情報とチャンネルを設定して Active
+
+詳細は [design/11-n8n-slack-rain-alerts.md](design/11-n8n-slack-rain-alerts.md)。判定 API の例:
+
+```bash
+curl -sS 'https://rainmap-api.ysk373.workers.dev/api/v1/alerts/precip?lat=35.681236&lon=139.767125' | jq '{raining_soon, notify_recommended, eta_minutes, onset}'
+```
 
 **本番チェックリスト（重要）**
 
@@ -96,6 +112,7 @@ VITE_API_BASE_URL=https://<your-worker-host> VITE_BASE_PATH=/<repo>/ npm run bui
 
 ## 変更履歴（実装）
 
+- **0.3.0**: **`GET /api/v1/alerts/precip`**（地点の HRPNs 画素サンプリング・`notify_recommended`）。n8n ワークフロー `n8n/upcoming-rain-slack.json` と設計 `design/11`。`WEB_PUBLIC_BASE` で地図ディープリンク。
 - **0.2.1**: JMA nowc **14 桁を UTC として解釈**（`utc_digits`）。**`/healthz`** に `jma_nowc_time_parse`、**`/api/v1/radar/meta`** に **`X-Rainmap-Jma-Nowc-Time`**（デプロイ確認用）。参照 Web のコマ時刻は **`Asia/Tokyo` 固定表示**。**`default_frame_id`** は「直近未来 → 最新 analysis → 末尾」。
 - **0.2.0**: N1＋N2 イングエスト、KV `v:2`、メタに `forecast_available` / `frames[].role`、フレームラベルに観測・予報表示
 - **0.1.1**: レビュー反映（KV 単一キー、本番のメタウォームアップ方針、タイル 404 JSON、coverage 判定、フェッチ上限・タイムアウト、フロントのメタ再取得・`setUrl`・現地時刻表示など）
