@@ -1,5 +1,5 @@
 // RAINMAP-2: alerts/precip の fail-closed（B1）を fake の fetchTile で確かめる。
-// 実行: cd worker && npm test（= tsc -p tsconfig.test.json && node --test test/。CI の rainmap-ci でも走る）
+// 実行: cd worker && npm test（= tsc -p tsconfig.test.json && node --test test/）
 // （追加の依存なし: TypeScript は既存の devDependency、テストは Node 20 の node:test）
 import { test } from "node:test";
 import assert from "node:assert/strict";
