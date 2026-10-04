@@ -83,8 +83,8 @@ VITE_API_BASE_URL=https://<your-worker-host> VITE_BASE_PATH=/<repo>/ npm run bui
 雨雲レーダーの短期予報コマを地点サンプリングし、降り始めそうなときだけ Slack へ流せます。
 
 1. Worker をデプロイ（上記）。`WEB_PUBLIC_BASE` を設定すると応答の `map_url` に地図リンクが入ります
-2. n8n に [`n8n/upcoming-rain-slack.json`](n8n/upcoming-rain-slack.json) を Import
-3. 「監視地点」の緯度経度・API オリジンを合わせ、Slack 資格情報とチャンネルを設定して Active
+2. n8n に ysk373/n8n の [`workflows/upcoming-rain-slack.json`](https://github.com/ysk373/n8n/blob/main/workflows/upcoming-rain-slack.json) を Import
+3. 監視地点の緯度経度・API オリジン・Slack チャンネルは ysk373/n8n の `.env` の `RAIN_ALERT_LAT` / `RAIN_ALERT_LON` / `RAINMAP_API_BASE` / `SLACK_CHANNEL_RAIN` で設定し、Slack 資格情報を選んで Active（詳しくは ysk373/n8n の README）
 
 詳細は [design/11-n8n-slack-rain-alerts.md](design/11-n8n-slack-rain-alerts.md)。判定 API の例:
 
@@ -112,7 +112,7 @@ curl -sS 'https://rainmap-api.ysk373.workers.dev/api/v1/alerts/precip?lat=35.681
 
 ## 変更履歴（実装）
 
-- **0.3.0**: **`GET /api/v1/alerts/precip`**（地点の HRPNs 画素サンプリング・`notify_recommended`）。n8n ワークフロー `n8n/upcoming-rain-slack.json` と設計 `design/11`。`WEB_PUBLIC_BASE` で地図ディープリンク。
+- **0.3.0**: **`GET /api/v1/alerts/precip`**（地点の HRPNs 画素サンプリング・`notify_recommended`）。n8n ワークフロー（`ysk373/n8n` の `workflows/upcoming-rain-slack.json`）と設計 `design/11`。`WEB_PUBLIC_BASE` で地図ディープリンク。
 - **0.2.1**: JMA nowc **14 桁を UTC として解釈**（`utc_digits`）。**`/healthz`** に `jma_nowc_time_parse`、**`/api/v1/radar/meta`** に **`X-Rainmap-Jma-Nowc-Time`**（デプロイ確認用）。参照 Web のコマ時刻は **`Asia/Tokyo` 固定表示**。**`default_frame_id`** は「直近未来 → 最新 analysis → 末尾」。
 - **0.2.0**: N1＋N2 イングエスト、KV `v:2`、メタに `forecast_available` / `frames[].role`、フレームラベルに観測・予報表示
 - **0.1.1**: レビュー反映（KV 単一キー、本番のメタウォームアップ方針、タイル 404 JSON、coverage 判定、フェッチ上限・タイムアウト、フロントのメタ再取得・`setUrl`・現地時刻表示など）

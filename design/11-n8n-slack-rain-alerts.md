@@ -74,8 +74,8 @@ coverage 外は **400 `out_of_coverage`**。KV 未準備の本番はメタと同
 
 ## 3. n8n セットアップ
 
-1. リポジトリの **`n8n/upcoming-rain-slack.json`** を n8n に Import
-2. ワークフロー内の **緯度経度**（および必要なら API オリジン）を監視地点に合わせる
+1. ysk373/n8n の **[`workflows/upcoming-rain-slack.json`](https://github.com/ysk373/n8n/blob/main/workflows/upcoming-rain-slack.json)** を n8n に Import
+2. 監視地点の **緯度経度**・API オリジン・Slack チャンネルは、ysk373/n8n の `.env` の `RAIN_ALERT_LAT` / `RAIN_ALERT_LON` / `RAINMAP_API_BASE` / `SLACK_CHANNEL_RAIN` で設定する（ほかの env と詳しい手順は ysk373/n8n の README）
 3. Slack 資格情報を設定（Bot Token または Incoming Webhook に差し替え）
 4. 重複抑制ノード（Data Store / 静的データ）のキーを地点ごとに分ける
 5. Active にする
@@ -122,3 +122,4 @@ curl -sS 'https://rainmap-api.ysk373.workers.dev/api/v1/alerts/precip?lat=35.681
 ## 変更履歴
 
 - rev.1: 地点降水アラート API と n8n / Slack 連携手順を追加
+- rev.2: n8n のワークフローを ysk373/n8n に移した（RAINMAP-1）

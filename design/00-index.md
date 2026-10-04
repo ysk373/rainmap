@@ -39,7 +39,7 @@
 
 **CI/CD（informative）**: **`.github/workflows/rainmap-ci.yml`**（型検査・Web ビルド）、**`.github/workflows/deploy-pages.yml`**（`main` の `web/**` 変更時に GitHub Actions Pages へデプロイ）。Worker の本番デプロイは **手動 Wrangler**（`README.md`）。
 
-**ひとことで**：まず「要件とスコープ」と「アーキテクチャ」で全体像を掴み、実際に公開するなら `09` と `03` を重点的に読むとよい、という順番です。**ナウキャストの予報コマを追加する場合は `10` を読む。**Slack に「もうすぐ雨」を飛ばす場合は `11` と `n8n/upcoming-rain-slack.json` を読む。**
+**ひとことで**：まず「要件とスコープ」と「アーキテクチャ」で全体像を掴み、実際に公開するなら `09` と `03` を重点的に読むとよい、という順番です。**ナウキャストの予報コマを追加する場合は `10` を読む。**Slack に「もうすぐ雨」を飛ばす場合は `11` と ysk373/n8n の `workflows/upcoming-rain-slack.json` を読む。**
 
 ### 実装者が先に固定すること（設計上の固定点）
 
