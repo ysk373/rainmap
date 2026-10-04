@@ -1,10 +1,12 @@
 {
   "name": "rainmap-worker",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.3.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "deploy": "wrangler deploy"
+    "test": "tsc -p tsconfig.test.json && node --test test/",
+    "deploy": "wrangler deploy",
+    "probe:precip": "node scripts/probe-precip.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250510.0",
