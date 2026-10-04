@@ -11,7 +11,7 @@ import {
   type TargetTimeEntry,
 } from "./domain";
 import { decodePng } from "./png";
-import { fetchUpstreamTile } from "./provider";
+import { fetchUpstreamTile, upstreamTileUrl } from "./provider";
 
 /** JMA 降水強度カラーに対応する代表値（mm/h）。index 0–1 は無降水（透明）。 */
 export const HRPNS_INDEX_MMH: readonly number[] = [
@@ -38,13 +38,46 @@ const HRPNS_RGB_MMH: ReadonlyArray<{ r: number; g: number; b: number; mmh: numbe
   { r: 0xb4, g: 0x00, b: 0x68, mmh: 90 },
 ];
 
+/** コマ単位の取得・デコード失敗の種類（失敗を 0 mm/h として扱わない） */
+export type FrameErrorKind = "http_error" | "timeout" | "fetch_error" | "decode_error";
+
 export type PrecipSample = {
   frame_id: string;
   time: string;
   role: FrameRole;
-  intensity_mmh: number;
-  intensity_label: string;
-  raining: boolean;
+  /** タイルを取得・デコードできたとき true */
+  ok: boolean;
+  error: FrameErrorKind | null;
+  /** error が "http_error" のときだけ上流の HTTP ステータス（404 も失敗） */
+  http_status: number | null;
+  /** ok=false のときは null（0 ではない） */
+  intensity_mmh: number | null;
+  intensity_label: string | null;
+  raining: boolean | null;
+};
+
+/** 評価に成功したコマ（強度が数値で入っている） */
+type OkSample = PrecipSample & { ok: true; intensity_mmh: number; raining: boolean };
+
+export type FailedFrame = {
+  frame_id: string;
+  time: string;
+  role: FrameRole;
+  error: FrameErrorKind;
+  http_status: number | null;
+};
+
+export type PrecipUpstreamErrorReason =
+  | "all_frames_failed"
+  | "current_frame_failed"
+  | "no_current_frame";
+
+export type PrecipUpstreamErrorBody = {
+  error_code: "upstream_error";
+  reason: PrecipUpstreamErrorReason;
+  message: string;
+  complete: false;
+  failed_frames: FailedFrame[];
 };
 
 export type PrecipAlertV1 = {
@@ -58,12 +91,19 @@ export type PrecipAlertV1 = {
   forecast_available: boolean;
   currently_raining: boolean;
   raining_soon: boolean;
-  /** まもなく降り始める（いまは降っていない）とき true。n8n の通知条件に使いやすい */
+  /**
+   * まもなく降り始める（いまは降っていない）とき true。n8n の通知条件に使いやすい。
+   * complete=false（どれかのコマが失敗）のときは常に false。
+   */
   notify_recommended: boolean;
   eta_minutes: number | null;
   onset: PrecipSample | null;
   peak: PrecipSample | null;
   samples: PrecipSample[];
+  /** 評価したすべてのコマを取得・デコードできたとき true */
+  complete: boolean;
+  /** 失敗したコマ（complete=true なら空配列） */
+  failed_frames: FailedFrame[];
   map_url: string | null;
   tile_xy: { z: number; x: number; y: number; px: number; py: number };
   provider_attribution: string;
@@ -71,6 +111,40 @@ export type PrecipAlertV1 = {
 
 const STALE_AFTER_MS = 15 * 60 * 1000;
 const TILE_SIZE = 256;
+/** タイル 1 枚の上限（provider の FETCH_TIMEOUT_MS と同じ） */
+const TILE_FETCH_TIMEOUT_MS = 10_000;
+/** 全タイル取得の時間の上限（超えたコマは timeout の失敗） */
+export const PRECIP_TILE_BUDGET_MS = 8_000;
+/** タイル取得の同時数の上限 */
+export const PRECIP_TILE_CONCURRENCY = 4;
+
+/** 成功した応答だけの Cache-Control（部分失敗・エラーは no-store） */
+export const PRECIP_OK_CACHE_CONTROL = "max-age=60, stale-while-revalidate=120";
+
+const UPSTREAM_ERROR_MESSAGES: Record<PrecipUpstreamErrorReason, string> = {
+  all_frames_failed: "気象庁タイルの取得に失敗しました（全コマ）。しばらくして再試行してください。",
+  current_frame_failed:
+    "現在のコマの気象庁タイルを取得できませんでした。しばらくして再試行してください。",
+  no_current_frame: "現在時刻のコマが見つからないため判定できません。",
+};
+
+/**
+ * 上流タイルのキャッシュ（Worker では caches.default、テストでは省略）。
+ * 取得・デコードに成功したタイルだけを put する。
+ */
+export type TileCache = {
+  match(key: string): Promise<Uint8Array | null>;
+  put(key: string, bytes: Uint8Array): Promise<void>;
+};
+
+export type FetchTileFn = (
+  basetime: string,
+  validtime: string,
+  z: number,
+  x: number,
+  y: number,
+  signal?: AbortSignal,
+) => Promise<Response>;
 
 export function intensityLabelJa(mmh: number): string {
   if (mmh <= 0) return "なし";
@@ -192,15 +266,155 @@ export type EvaluatePrecipInput = {
   zoomMax: number;
   radiusPx: number;
   webPublicBase?: string;
-  /** 上流タイル取得（テスト差し替え用） */
-  fetchTile?: (
-    basetime: string,
-    validtime: string,
-    z: number,
-    x: number,
-    y: number,
-  ) => Promise<Response>;
+  /** 上流タイル取得（テスト差し替え用）。signal は時間の上限で abort される */
+  fetchTile?: FetchTileFn;
+  /** 上流タイルのキャッシュ（省略時はキャッシュしない） */
+  tileCache?: TileCache;
+  /** 全タイル取得の時間の上限（ms、既定 PRECIP_TILE_BUDGET_MS） */
+  budgetMs?: number;
+  /** 同時取得数（既定 PRECIP_TILE_CONCURRENCY） */
+  concurrency?: number;
 };
+
+export type PrecipEvaluation =
+  | { ok: true; alert: PrecipAlertV1 }
+  | { ok: false; error: PrecipUpstreamErrorBody };
+
+/** 評価結果 → HTTP ステータス・Cache-Control・本文（design/11 の契約） */
+export function precipHttpResult(evaluation: PrecipEvaluation): {
+  status: number;
+  cacheControl: string;
+  body: PrecipAlertV1 | PrecipUpstreamErrorBody;
+} {
+  if (!evaluation.ok) {
+    return { status: 502, cacheControl: "no-store", body: evaluation.error };
+  }
+  return {
+    status: 200,
+    cacheControl: evaluation.alert.complete ? PRECIP_OK_CACHE_CONTROL : "no-store",
+    body: evaluation.alert,
+  };
+}
+
+type FrameOutcome =
+  | { ok: true; intensity_mmh: number }
+  | { ok: false; error: FrameErrorKind; http_status: number | null };
+
+class FrameFailure extends Error {
+  constructor(
+    readonly kind: FrameErrorKind,
+    readonly httpStatus: number | null = null,
+  ) {
+    super(kind);
+  }
+}
+
+function isAbortLike(e: unknown): boolean {
+  const name = (e as { name?: unknown } | null)?.name;
+  return name === "AbortError" || name === "TimeoutError";
+}
+
+async function evaluateFrame(
+  e: TargetTimeEntry,
+  z: number,
+  tile: { x: number; y: number; px: number; py: number },
+  radiusPx: number,
+  fetchTile: FetchTileFn,
+  tileCache: TileCache | undefined,
+  deadlineMs: number,
+): Promise<FrameOutcome> {
+  const remaining = deadlineMs - Date.now();
+  if (remaining <= 0) return { ok: false, error: "timeout", http_status: null };
+  const timeoutMs = Math.min(TILE_FETCH_TIMEOUT_MS, remaining);
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new FrameFailure("timeout"));
+    }, timeoutMs);
+  });
+
+  const work = async (): Promise<{ mmh: number; bytes: Uint8Array; fromCache: boolean }> => {
+    const key = upstreamTileUrl(e.basetime, e.validtime, z, tile.x, tile.y);
+    let bytes: Uint8Array | null = null;
+    let fromCache = false;
+    if (tileCache) {
+      try {
+        bytes = await tileCache.match(key);
+        fromCache = bytes !== null && bytes.byteLength > 0;
+      } catch {
+        bytes = null;
+      }
+    }
+    if (!fromCache) {
+      let res: Response;
+      try {
+        res = await fetchTile(e.basetime, e.validtime, z, tile.x, tile.y, controller.signal);
+      } catch (err) {
+        throw new FrameFailure(isAbortLike(err) ? "timeout" : "fetch_error");
+      }
+      if (!res.ok) throw new FrameFailure("http_error", res.status);
+      try {
+        bytes = new Uint8Array(await res.arrayBuffer());
+      } catch (err) {
+        throw new FrameFailure(isAbortLike(err) ? "timeout" : "fetch_error");
+      }
+      if (bytes.byteLength === 0) throw new FrameFailure("fetch_error");
+    }
+    let mmh: number;
+    try {
+      const decoded = await decodePng(bytes!);
+      // 気象庁のタイルは 256x256。ほかの大きさ（プレースホルダ等）は雨なしと区別できないので失敗にする
+      if (decoded.width !== TILE_SIZE || decoded.height !== TILE_SIZE) {
+        throw new Error("unexpected_tile_size");
+      }
+      mmh = sampleIntensityFromDecoded(decoded, tile.px, tile.py, radiusPx);
+    } catch {
+      throw new FrameFailure("decode_error");
+    }
+    return { mmh, bytes: bytes!, fromCache };
+  };
+
+  let done: { mmh: number; bytes: Uint8Array; fromCache: boolean };
+  try {
+    done = await Promise.race([work(), timeout]);
+  } catch (err) {
+    if (err instanceof FrameFailure) {
+      return { ok: false, error: err.kind, http_status: err.httpStatus };
+    }
+    return { ok: false, error: "fetch_error", http_status: null };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+  // 取得・デコードに成功したタイルだけをキャッシュする（時間の上限の外で行う）
+  if (tileCache && !done.fromCache) {
+    try {
+      await tileCache.put(upstreamTileUrl(e.basetime, e.validtime, z, tile.x, tile.y), done.bytes);
+    } catch {
+      // キャッシュの失敗は評価に影響させない
+    }
+  }
+  return { ok: true, intensity_mmh: done.mmh };
+}
+
+/** 同時数に上限をつけて並列に評価する（結果は入力と同じ順） */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 function selectFramesForHorizon(
   entries: TargetTimeEntry[],
@@ -245,7 +459,7 @@ function selectFramesForHorizon(
   return out;
 }
 
-export async function evaluatePrecipAtPoint(input: EvaluatePrecipInput): Promise<PrecipAlertV1> {
+export async function evaluatePrecipAtPoint(input: EvaluatePrecipInput): Promise<PrecipEvaluation> {
   const {
     lat,
     lon,
@@ -262,6 +476,7 @@ export async function evaluatePrecipAtPoint(input: EvaluatePrecipInput): Promise
   const z = clampEvenZoom(input.zoom, zoomMin, zoomMax);
   const tile = latLonToTilePixel(lat, lon, z);
   const fetchTile = input.fetchTile ?? fetchUpstreamTile;
+  const deadlineMs = Date.now() + (input.budgetMs ?? PRECIP_TILE_BUDGET_MS);
 
   const stale = entries.length === 0 || nowMs - fetchedAtMs > STALE_AFTER_MS;
   const frames = selectFramesForHorizon(entries, nowMs, horizonMinutes);
@@ -270,53 +485,93 @@ export async function evaluatePrecipAtPoint(input: EvaluatePrecipInput): Promise
       (!e.elements || e.elements.includes("hrpns")) && frameRoleFromEntry(e) === "forecast",
   );
 
-  const samples: PrecipSample[] = [];
-  for (const e of frames) {
-    const frame_id = frameIdForEntry(e);
-    const time = jmaNowcTimeToUtcIso(e.validtime);
-    const role = frameRoleFromEntry(e);
-    let intensity_mmh = 0;
-    try {
-      const res = await fetchTile(e.basetime, e.validtime, z, tile.x, tile.y);
-      if (res.ok) {
-        const buf = new Uint8Array(await res.arrayBuffer());
-        if (buf.byteLength > 0) {
-          const decoded = await decodePng(buf);
-          intensity_mmh = sampleIntensityFromDecoded(decoded, tile.px, tile.py, radiusPx);
-        }
-      }
-    } catch {
-      intensity_mmh = 0;
-    }
-    const raining = intensity_mmh >= minIntensityMmh;
-    samples.push({
-      frame_id,
-      time,
-      role,
-      intensity_mmh,
-      intensity_label: intensityLabelJa(intensity_mmh),
-      raining,
-    });
-  }
+  const outcomes = await mapWithConcurrency(
+    frames,
+    input.concurrency ?? PRECIP_TILE_CONCURRENCY,
+    (e) => evaluateFrame(e, z, tile, radiusPx, fetchTile, input.tileCache, deadlineMs),
+  );
 
-  /** いま時刻以前で最も新しいコマ（実況の近似） */
+  const samples: PrecipSample[] = frames.map((e, i) => {
+    const base = {
+      frame_id: frameIdForEntry(e),
+      time: jmaNowcTimeToUtcIso(e.validtime),
+      role: frameRoleFromEntry(e),
+    };
+    const o = outcomes[i]!;
+    if (o.ok) {
+      return {
+        ...base,
+        ok: true,
+        error: null,
+        http_status: null,
+        intensity_mmh: o.intensity_mmh,
+        intensity_label: intensityLabelJa(o.intensity_mmh),
+        raining: o.intensity_mmh >= minIntensityMmh,
+      };
+    }
+    return {
+      ...base,
+      ok: false,
+      error: o.error,
+      http_status: o.http_status,
+      intensity_mmh: null,
+      intensity_label: null,
+      raining: null,
+    };
+  });
+
+  const failed_frames: FailedFrame[] = samples
+    .filter((s) => !s.ok)
+    .map((s) => ({
+      frame_id: s.frame_id,
+      time: s.time,
+      role: s.role,
+      error: s.error!,
+      http_status: s.http_status,
+    }));
+  const complete = failed_frames.length === 0;
+
+  /** いま時刻以前で最も新しいコマ（実況の近似）。成功・失敗を問わず選ぶ */
   let currentSample: PrecipSample | null = null;
-  let onset: PrecipSample | null = null;
-  let peak: PrecipSample | null = null;
   for (const s of samples) {
     const ms = Date.parse(s.time);
     if (!Number.isNaN(ms) && ms <= nowMs) {
       if (!currentSample || Date.parse(currentSample.time) <= ms) currentSample = s;
     }
+  }
+
+  const upstreamError = (reason: PrecipUpstreamErrorReason): PrecipEvaluation => ({
+    ok: false,
+    error: {
+      error_code: "upstream_error",
+      reason,
+      message: UPSTREAM_ERROR_MESSAGES[reason],
+      complete: false,
+      failed_frames,
+    },
+  });
+  // 理由の優先順位: コマ無し → 全コマ失敗 → 現在コマ無し → 現在コマ失敗
+  if (samples.length === 0) return upstreamError("no_current_frame");
+  if (samples.every((s) => !s.ok)) return upstreamError("all_frames_failed");
+  if (!currentSample) return upstreamError("no_current_frame");
+  if (!currentSample.ok) return upstreamError("current_frame_failed");
+
+  // 以降は成功したコマだけで判定する（complete=false なら当てにならない）
+  const okSamples = samples.filter((s): s is OkSample => s.ok);
+  let onset: PrecipSample | null = null;
+  let peak: OkSample | null = null;
+  for (const s of okSamples) {
+    const ms = Date.parse(s.time);
     // 降り始め = 現在より後で最初に閾値を超えるコマ
     if (!Number.isNaN(ms) && ms > nowMs && s.raining && !onset) onset = s;
     if (!peak || s.intensity_mmh > peak.intensity_mmh) peak = s;
   }
   if (peak && peak.intensity_mmh <= 0) peak = null;
 
-  const currently_raining = currentSample?.raining === true;
+  const currently_raining = currentSample.raining === true;
   const raining_soon =
-    currently_raining || samples.some((s) => {
+    currently_raining ||
+    okSamples.some((s) => {
       const ms = Date.parse(s.time);
       return !Number.isNaN(ms) && ms > nowMs && s.raining;
     });
@@ -332,30 +587,36 @@ export async function evaluatePrecipAtPoint(input: EvaluatePrecipInput): Promise
   }
 
   const notify_recommended =
+    complete &&
     !currently_raining &&
     onset !== null &&
     (eta_minutes ?? 0) <= horizonMinutes;
 
   return {
-    contract_version: "1",
-    lat,
-    lon,
-    zoom: z,
-    horizon_minutes: horizonMinutes,
-    min_intensity_mmh: minIntensityMmh,
-    stale,
-    forecast_available,
-    currently_raining,
-    raining_soon,
-    notify_recommended,
-    eta_minutes,
-    onset,
-    peak,
-    samples,
-    map_url: buildMapUrl(webPublicBase, lat, lon, Math.min(10, Math.max(6, z))),
-    tile_xy: { z, x: tile.x, y: tile.y, px: tile.px, py: tile.py },
-    provider_attribution:
-      "出典：気象庁（防災気象情報・ナウキャスト等）。利用条件は公式サイトを確認してください。",
+    ok: true,
+    alert: {
+      contract_version: "1",
+      lat,
+      lon,
+      zoom: z,
+      horizon_minutes: horizonMinutes,
+      min_intensity_mmh: minIntensityMmh,
+      stale,
+      forecast_available,
+      currently_raining,
+      raining_soon,
+      notify_recommended,
+      eta_minutes,
+      onset,
+      peak,
+      samples,
+      complete,
+      failed_frames,
+      map_url: buildMapUrl(webPublicBase, lat, lon, Math.min(10, Math.max(6, z))),
+      tile_xy: { z, x: tile.x, y: tile.y, px: tile.px, py: tile.py },
+      provider_attribution:
+        "出典：気象庁（防災気象情報・ナウキャスト等）。利用条件は公式サイトを確認してください。",
+    },
   };
 }
 
@@ -373,6 +634,9 @@ export function fakePrecipAlert(input: {
     frame_id: "fake_forecast",
     time: "2020-01-01T01:00:00.000Z",
     role: "forecast",
+    ok: true,
+    error: null,
+    http_status: null,
     intensity_mmh: 3,
     intensity_label: intensityLabelJa(3),
     raining: true,
@@ -397,12 +661,17 @@ export function fakePrecipAlert(input: {
         frame_id: "fake_analysis",
         time: "2020-01-01T00:00:00.000Z",
         role: "analysis",
+        ok: true,
+        error: null,
+        http_status: null,
         intensity_mmh: 0,
         intensity_label: "なし",
         raining: false,
       },
       onset,
     ],
+    complete: true,
+    failed_frames: [],
     map_url: buildMapUrl(input.webPublicBase, input.lat, input.lon, z),
     tile_xy: { z, x: tile.x, y: tile.y, px: tile.px, py: tile.py },
     provider_attribution: "FAKE PROVIDER（開発・テスト用）",

@@ -18,7 +18,9 @@ import {
   evaluatePrecipAtPoint,
   fakePrecipAlert,
   pointInCoverage,
+  precipHttpResult,
 } from "./precip";
+import { workersTileCache } from "./tile_cache";
 
 const KV_SNAPSHOT = "radar:nowc:snapshot_v1";
 /** 後方互換: 旧 2 キー構成からの移行用 */
@@ -299,7 +301,7 @@ export default {
     }
   },
 
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const correlationId = request.headers.get("x-correlation-id") || crypto.randomUUID();
 
     if (productionFakeViolation(env)) {
@@ -513,7 +515,7 @@ export default {
       }
 
       try {
-        const alert = await evaluatePrecipAtPoint({
+        const evaluation = await evaluatePrecipAtPoint({
           lat,
           lon,
           entries: snap.entries,
@@ -526,9 +528,14 @@ export default {
           zoomMax: zb.max,
           radiusPx,
           webPublicBase: webBase,
+          tileCache: workersTileCache(ctx ? (p) => ctx.waitUntil(p) : undefined),
         });
-        return jsonResponse(request, env, alert, {
-          cacheControl: "max-age=60, stale-while-revalidate=120",
+        // 契約（design/11）: 全コマ成功 200＋キャッシュ可、部分失敗 200＋no-store、
+        // 解析コマ失敗・全コマ失敗・現在コマなし 502 upstream_error＋no-store
+        const result = precipHttpResult(evaluation);
+        return jsonResponse(request, env, result.body, {
+          status: result.status,
+          cacheControl: result.cacheControl,
         });
       } catch (e) {
         return errorJson(
@@ -537,6 +544,7 @@ export default {
           502,
           "precip_eval_failed",
           `降水評価に失敗しました: ${String(e)}`,
+          { cacheControl: "no-store" },
         );
       }
     }

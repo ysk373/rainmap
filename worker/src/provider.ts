@@ -54,10 +54,12 @@ export async function fetchUpstreamTile(
   z: number,
   x: number,
   y: number,
+  /** 呼び出し側の時間の上限（省略時は FETCH_TIMEOUT_MS） */
+  signal?: AbortSignal,
 ): Promise<Response> {
   const url = upstreamTileUrl(basetime, validtime, z, x, y);
   return fetch(url, {
     headers: { "User-Agent": "rainmap-worker/0.1" },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    signal: signal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
 }
